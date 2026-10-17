@@ -186,6 +186,12 @@ export const jjCommand = Effect.fn("JjProcess.jjCommand")(function* (
   return result;
 });
 
+/** The `run(operation, cwd, args, options)` shim every jj module binds once against its process. */
+export const jjRunner =
+  (process: VcsProcess.VcsProcess["Service"]) =>
+  (operation: string, cwd: string, args: ReadonlyArray<string>, options?: JjCommandOptions) =>
+    jjCommand(process, operation, cwd, args, options);
+
 export interface ColocatedGitInput {
   readonly gitDir: string;
   readonly workTree?: string;
@@ -216,7 +222,8 @@ export const colocatedGitCommand = Effect.fn("JjProcess.colocatedGitCommand")(fu
     cwd: input.cwd,
     ...passthroughOptions(options),
     ...(args[0] === "fetch" ? { env: { ...options?.env, ...STATUS_UPSTREAM_REFRESH_ENV } } : {}),
-    allowNonZeroExit: true,
+    allowNonZeroExit:
+      options?.retryTransientFailures === true ? options?.allowNonZeroExit === true : true,
   } satisfies VcsProcess.VcsProcessInput;
   const result = yield* process.run(commandInput);
   if (result.exitCode !== 0 && options?.allowNonZeroExit !== true) {
