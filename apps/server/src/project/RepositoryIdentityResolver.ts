@@ -13,6 +13,7 @@ import * as FileSystem from "effect/FileSystem";
 import * as Layer from "effect/Layer";
 import * as Path from "effect/Path";
 
+import * as JjRepo from "../vcs/JjRepo.ts";
 import * as ProcessRunner from "../processRunner.ts";
 import { sourceControlDefinitions } from "../sourceControl/sourceControlDefinitions.ts";
 import { explicitBareRepositoryEnv, unsetInheritedRepositoryEnv } from "../vcs/VcsProcess.ts";
@@ -246,6 +247,15 @@ const resolveRepositoryIdentityCacheKey = Effect.fn("RepositoryIdentityResolver.
       Effect.orElseSucceed(() => true),
     );
     if (!isFolder) return null;
+
+    const marker = yield* JjRepo.findVcsMarkerRoot(fileSystem, path, cwd);
+    if (marker?.marker === "jj") {
+      const paths = yield* JjRepo.resolveJjRepoPaths(fileSystem, path, marker.root).pipe(
+        Effect.orElseSucceed(() => null),
+      );
+      if (paths === null || paths.gitDir === null) return null;
+      return new RepositoryIdentityCacheKey({ rootPath: paths.mainWorkspaceRoot, isBare: false });
+    }
 
     // git is always a real executable; cmd shell mode would split spaced paths on re-tokenization.
     const topLevelResult = yield* processRunner

@@ -1,3 +1,4 @@
+import { isWithinRoot } from "./isWithinRoot.ts";
 // @effect-diagnostics nodeBuiltinImport:off
 import * as NodeFS from "node:fs";
 import * as NodeFSP from "node:fs/promises";
@@ -266,7 +267,7 @@ export const make = Effect.gen(function* () {
         : yield* toHostPath(requestedPath);
     if (
       isNetworkPath(hostPath) &&
-      !KnownWorkspaces.isWithinRoot(path, path.resolve(hostPath), path.resolve(input.cwd))
+      !isWithinRoot(path, path.resolve(hostPath), path.resolve(input.cwd))
     ) {
       return yield* new WorkspacePaths.WorkspacePathOutsideRootError({
         workspaceRoot: input.cwd,

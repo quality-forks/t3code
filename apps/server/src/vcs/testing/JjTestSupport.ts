@@ -1,3 +1,4 @@
+import type * as VcsDriver from "../VcsDriver.ts";
 import * as NodeCrypto from "@effect/platform-node/NodeCrypto";
 // @effect-diagnostics nodeBuiltinImport:off
 import * as NodeChildProcess from "node:child_process";
@@ -251,3 +252,14 @@ export const stubSourceControlProviders =
       }),
     ),
   );
+
+export const emptyCheckpointOps: VcsDriver.VcsCheckpointOps = {
+  resolveCleanHead: () => Effect.succeed(null),
+  captureHeadCheckpoint: () => Effect.void,
+  captureCheckpoint: () => Effect.void,
+  hasCheckpointRef: () => Effect.succeed(false),
+  restoreCheckpoint: () => Effect.succeed(false),
+  diffCheckpoints: () => Effect.succeed(""),
+  listAuthoredPaths: () => Effect.succeed(null),
+  deleteCheckpointRefs: () => Effect.void,
+};

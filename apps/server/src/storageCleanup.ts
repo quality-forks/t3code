@@ -1153,6 +1153,8 @@ const make = Effect.gen(function* () {
     const worktreePathReason = Effect.fn("StorageCleanup.worktreePathReason")(function* (
       worktreePath: string,
     ) {
+      if (yield* fs.exists(path.join(worktreePath, ".jj")))
+        return "Jujutsu workspaces require explicit removal";
       // Allow symlinked parents, never a symlinked worktree directory.
       const realPath = yield* fs.realPath(worktreePath);
       const realParent = yield* fs.realPath(path.dirname(worktreePath));

@@ -1,3 +1,4 @@
+import * as JjRepo from "../vcs/JjRepo.ts";
 import * as NodeOS from "node:os";
 import * as NodeSqlite from "node:sqlite";
 import * as NodeZlib from "node:zlib";
@@ -1144,16 +1145,42 @@ export const make = Effect.gen(function* () {
 
   /** Maps each directory to the project it counts toward: a linked worktree counts toward its main checkout. */
   const resolveDirectoryProjects = Effect.fn("AgentSessionScanner.resolveDirectoryProjects")(
-    function* (resolvedDirectories: ReadonlyArray<string>) {
+    function* (
+      resolvedDirectories: ReadonlyArray<string>,
+      importedJjWorkspaces: ReadonlySet<string> | null,
+    ) {
       // Stat every directory first so one batch reads all git identities.
       const directories = new Map<string, Option.Option<FileSystem.File.Info>>();
+      const jjPathsByDirectory = new Map<string, JjRepo.JjRepoPaths>();
       for (const resolved of resolvedDirectories) {
         if (directories.has(resolved)) continue;
-        directories.set(resolved, yield* projectDirectoryStats(resolved));
+        const stats = yield* projectDirectoryStats(resolved);
+        directories.set(resolved, stats);
+        if (Option.isNone(stats)) continue;
+        const realPath = yield* fileSystem
+          .realPath(resolved)
+          .pipe(Effect.orElseSucceed(() => resolved));
+        const marker = yield* JjRepo.findVcsMarkerRoot(fileSystem, path, realPath);
+        if (marker?.marker !== "jj") continue;
+        const jjPaths = yield* JjRepo.resolveJjRepoPaths(fileSystem, path, marker.root).pipe(
+          Effect.orElseSucceed(() => null),
+        );
+        if (jjPaths === null) continue;
+        if (
+          jjPaths.isSecondaryWorkspace &&
+          importedJjWorkspaces !== null &&
+          !importedJjWorkspaces.has(yield* directoryIdentity(jjPaths.workspaceRoot))
+        ) {
+          directories.set(resolved, Option.none());
+          continue;
+        }
+        jjPathsByDirectory.set(resolved, jjPaths);
       }
       const directoryGitIdentities = yield* readGitIdentities(
         Array.from(directories).flatMap(([directory, stats]) =>
-          Option.isSome(stats) ? [directory] : [],
+          Option.isSome(stats)
+            ? [jjPathsByDirectory.get(directory)?.mainWorkspaceRoot ?? directory]
+            : [],
         ),
       );
       const projects = new Map<
@@ -1166,9 +1193,20 @@ export const make = Effect.gen(function* () {
         } | null
       >();
       for (const [resolved, stats] of directories) {
-        const gitIdentity = directoryGitIdentities.get(resolved);
+        const jjPaths = jjPathsByDirectory.get(resolved);
+        const gitIdentity = directoryGitIdentities.get(jjPaths?.mainWorkspaceRoot ?? resolved);
         if (Option.isNone(stats) || gitIdentity === undefined) {
           projects.set(resolved, null);
+        } else if (jjPaths !== undefined) {
+          projects.set(resolved, {
+            key: yield* directoryIdentity(jjPaths.workspaceRoot),
+            path: jjPaths.workspaceRoot,
+            git:
+              gitIdentity._tag === "Repository"
+                ? gitIdentity.git
+                : { remoteKey: null, repository: null },
+            worktreeGitDir: null,
+          });
         } else if (gitIdentity._tag === "Worktree") {
           const { mainCheckout } = gitIdentity;
           const mainStats =
@@ -1952,6 +1990,21 @@ export const make = Effect.gen(function* () {
     cachedCandidates = yield* collectCandidates();
     const { candidates: raw, truncated } = cachedCandidates;
 
+    // Resolve persisted roots too; transcripts may use different symlinks to the same directory.
+    const importedProjects = yield* projectStore
+      .listShells()
+      .pipe(
+        Effect.mapError(
+          (cause) => new AgentSessionScanError({ operation: "read-projects", cause }),
+        ),
+      );
+    const importedProjectsByRoot = new Map<string, (typeof importedProjects)[number]>();
+    for (const project of importedProjects) {
+      const projectRoot = path.resolve(expandHomePath(project.workspaceRoot, homeDir));
+      importedProjectsByRoot.set(normalizeProjectPathForComparison(projectRoot), project);
+      importedProjectsByRoot.set(yield* directoryIdentity(projectRoot), project);
+    }
+
     const merged = new Map<
       string,
       {
@@ -1967,6 +2020,7 @@ export const make = Effect.gen(function* () {
         const expanded = expandHomePath(candidate.cwd.trim(), homeDir);
         return path.isAbsolute(expanded) ? [path.resolve(expanded)] : [];
       }),
+      new Set(importedProjectsByRoot.keys()),
     );
 
     for (const candidate of raw) {
@@ -1994,21 +2048,6 @@ export const make = Effect.gen(function* () {
         existing.lastActiveAtMs === null || candidate.lastActiveAtMs === null
           ? (existing.lastActiveAtMs ?? candidate.lastActiveAtMs)
           : Math.max(existing.lastActiveAtMs, candidate.lastActiveAtMs);
-    }
-
-    // Resolve persisted roots too; transcripts may use different symlinks to the same directory.
-    const importedProjects = yield* projectStore
-      .listShells()
-      .pipe(
-        Effect.mapError(
-          (cause) => new AgentSessionScanError({ operation: "read-projects", cause }),
-        ),
-      );
-    const importedProjectsByRoot = new Map<string, (typeof importedProjects)[number]>();
-    for (const project of importedProjects) {
-      const projectRoot = path.resolve(expandHomePath(project.workspaceRoot, homeDir));
-      importedProjectsByRoot.set(normalizeProjectPathForComparison(projectRoot), project);
-      importedProjectsByRoot.set(yield* directoryIdentity(projectRoot), project);
     }
 
     const candidates: Array<AgentSessionProjectCandidate> = [];
@@ -2068,13 +2107,13 @@ export const make = Effect.gen(function* () {
       const expanded = expandHomePath(candidate.cwd.trim(), homeDir);
       return path.isAbsolute(expanded) ? [path.resolve(expanded)] : [];
     });
-    const directoryProjects = yield* resolveDirectoryProjects(candidateDirectories);
+    const directoryProjects = yield* resolveDirectoryProjects(candidateDirectories, null);
     const belongsToRoot = Effect.fn("AgentSessionScanner.belongsToRoot")(function* (
       resolved: string,
     ) {
       if ((yield* directoryIdentity(resolved)) === rootIdentity) return true;
       if (!directoryProjects.has(resolved)) {
-        const project = (yield* resolveDirectoryProjects([resolved])).get(resolved) ?? null;
+        const project = (yield* resolveDirectoryProjects([resolved], null)).get(resolved) ?? null;
         directoryProjects.set(resolved, project);
       }
       return directoryProjects.get(resolved)?.key === rootIdentity;

@@ -16,7 +16,8 @@ A colocated repository imports Git refs during jj commands. The default unreacha
 
 Availability probes are cached per repository, not globally: a broken repository configuration
 must not disable Jujutsu in another checkout. Failed probes retain jj's stderr rather than
-reporting an installed binary as missing.
+reporting an installed binary as missing. Successful probes expire after five minutes; failures
+expire after thirty seconds. Executable identity changes invalidate cached results immediately.
 
 Machine templates access keywords through `self` methods so user keyword aliases cannot shadow
 them. If configuration changes a template function's output, decoding reports the failing field
@@ -70,8 +71,8 @@ In a colocated repo every jj commit, `@` included, is a real Git object in
 - Checkpoint diffs use Git plumbing between captured trees, including captured merges. Review diffs use Git plumbing for single-parent changes and `jj diff --git` for merged-parent baselines, retaining rename pairs in numstat metadata.
 - Hosting operations and per-thread merge-base config use the main workspace root and its `.git/config`. Local bookmarks are exported as Git branch refs in the colocated store. Explicit fetch, push and bookmark movement belong to jj, not Git checkout commands. Background status fetches use Git with noninteractive authentication and write only `refs/t3/remotes/<encoded-remote>/*`, a namespace jj does not import. Fetch disables Git's configured remote-tracking ref mappings as well. Ahead counts use jj's nonempty changes above the Git merge bases; behind counts read the fetched Git objects. A background remote update therefore cannot move a tracked local bookmark or detach the workspace from it.
 
-At the driver level, a jj repo with no reachable `.git` is reported unusable.
-[`JjRepo.resolveJjRepoPaths`](../../apps/server/src/vcs/JjRepo.ts)
+Hence the scope limit: a jj repo with no reachable `.git` is detected as jj and reported unusable,
+never quietly treated as Git. [`JjRepo.resolveJjRepoPaths`](../../apps/server/src/vcs/JjRepo.ts)
 follows a secondary workspace's `.jj/repo` pointer back to the main root so every Git call still has
 a `--git-dir`.
 
@@ -80,7 +81,7 @@ Upstream ahead counts start at `@` and exclude empty local changes; behind count
 selected local bookmark and include empty remote commits. Automatic pull never applies to jj.
 
 Status snapshot, segment, bookmark and workspace read failures propagate to the caller; they never
-become a clean working-copy result. Status reads remain live, and the broadcaster
+become a clean working-copy result. Workflow and review use the same driver caches. Status reads remain live, and the broadcaster
 retains upstream's branch-race checks and local/remote refresh ordering. Optional branch totals alone are absent for unrelated histories:
 only after a failed triple-dot diff does a successful no-common-ancestor diagnostic establish this.
 Broken commands, missing objects, timeouts and other genuine failures still surface.
@@ -92,8 +93,13 @@ can always be preserved and cleanup can dispose of empty, undescribed changes. F
 the workspace directory. Only snapshotted changes are retained in Jujutsu history; ignored files and
 files excluded by snapshot size limits may be lost.
 
-These are driver-level guarantees. Automatic repository selection is enabled separately through
-the registry; the native workflow is not yet selected by automatic detection.
+The registry selects jj before colocated Git and respects nested Git repository boundaries.
+Jujutsu 0.46 or newer and a colocated main repository are required. An unusable jj repository
+remains jj and reports its refusal; it never silently switches to Git.
+
+Automatic cleanup preserves jj workspaces. T3 never runs `jj workspace update-stale` to repair a
+workspace automatically: that can overwrite unsnapshotted files. Stale-workspace errors retain
+jj's diagnostic so the user can inspect the files and explicitly repair the workspace.
 
 An explicitly remote-qualified workspace base uses that remote bookmark, even when
 a same-named local bookmark contains unpublished commits. Tracking does not replace the base.

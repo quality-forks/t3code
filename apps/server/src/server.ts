@@ -507,6 +507,8 @@ const layerProjectCloneTracker = ProjectCloneTracker.layer.pipe(
 );
 
 const layerKnownWorkspaces = KnownWorkspaces.layer.pipe(
+  Layer.provide(layerVcsDriverRegistry),
+  Layer.provide(JjVcsDriver.layer),
   Layer.provide(ProjectStore.layer),
   Layer.provide(GitVcsDriver.layer),
 );

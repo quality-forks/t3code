@@ -9,6 +9,8 @@ import * as Path from "effect/Path";
 
 import type { VcsDriverKind, VcsError, VcsRepositoryIdentity } from "@t3tools/contracts";
 import { VcsUnsupportedOperationError } from "@t3tools/contracts";
+import * as JjVcsDriver from "./JjVcsDriver.ts";
+import * as JjRepo from "./JjRepo.ts";
 import * as GitVcsDriver from "./GitVcsDriver.ts";
 import * as VcsProjectConfig from "./VcsProjectConfig.ts";
 import * as VcsDriver from "./VcsDriver.ts";
@@ -64,8 +66,10 @@ export const make = Effect.gen(function* () {
   const path = yield* Path.Path;
   const projectConfig = yield* VcsProjectConfig.VcsProjectConfig;
   const git = yield* GitVcsDriver.makeVcsDriver;
+  const jj = yield* JjVcsDriver.JjVcsDriver;
   const drivers: Partial<Record<VcsDriverKind, VcsDriver.VcsDriver["Service"]>> = {
     git,
+    jj,
   };
 
   const get: VcsDriverRegistry["Service"]["get"] = (kind) => {
@@ -118,6 +122,8 @@ export const make = Effect.gen(function* () {
       return yield* detectWithDriver(requestedKind, driver, input.cwd);
     }
 
+    const marker = yield* JjRepo.findVcsMarkerRoot(fileSystem, path, input.cwd);
+    if (marker?.marker === "jj") return yield* detectWithDriver("jj", jj, input.cwd);
     return yield* detectWithDriver("git", git, input.cwd);
   });
 
@@ -137,6 +143,9 @@ export const make = Effect.gen(function* () {
         Effect.all([
           fileSystem.exists(path.join(folder, ".git")),
           fileSystem.exists(path.join(folder, ".jj")),
+          fileSystem.exists(path.join(folder, "HEAD")),
+          fileSystem.exists(path.join(folder, "objects")),
+          fileSystem.exists(path.join(folder, "refs")),
         ]),
       ).pipe(Effect.map((entries) => entries.flat())),
       repositoryOnDisk: Effect.forEach(
@@ -171,8 +180,12 @@ export const make = Effect.gen(function* () {
 
   const detect: VcsDriverRegistry["Service"]["detect"] = Effect.fn("VcsDriverRegistry.detect")(
     function* (input) {
-      if (input.jjOnly) return null;
       const requestedKind = yield* projectConfig.resolveKind(input);
+      if (input.jjOnly) {
+        if (requestedKind === "git") return null;
+        const marker = yield* JjRepo.findVcsMarkerRoot(fileSystem, path, input.cwd);
+        if (marker?.marker !== "jj") return null;
+      }
       const key = detectionCacheKey({ cwd: input.cwd, requestedKind });
       const cached = yield* Cache.get(detectionCache, key);
       if (cached === null) return null;
@@ -217,4 +230,5 @@ export const make = Effect.gen(function* () {
 
 export const layer = Layer.effect(VcsDriverRegistry, make).pipe(
   Layer.provide(VcsProjectConfig.layer),
+  Layer.provide(JjVcsDriver.layer),
 );

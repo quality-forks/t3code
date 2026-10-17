@@ -13,6 +13,8 @@ import * as ServerConfig from "../config.ts";
 import * as ProjectStore from "../orchestration-v2/ProjectStore.ts";
 import * as SqlitePersistence from "../persistence/Sqlite.ts";
 import * as ServerSettings from "../serverSettings.ts";
+import * as JjVcsDriver from "../vcs/JjVcsDriver.ts";
+import { emptyCheckpointOps } from "../vcs/testing/JjTestSupport.ts";
 import * as GitVcsDriver from "../vcs/GitVcsDriver.ts";
 import type * as VcsDriver from "../vcs/VcsDriver.ts";
 import * as VcsDriverRegistry from "../vcs/VcsDriverRegistry.ts";
@@ -26,7 +28,14 @@ function makeDriver(
   overrides: Partial<VcsDriver.VcsDriver["Service"]>,
 ): VcsDriver.VcsDriver["Service"] {
   return {
-    checkpoints: { resolveCleanHead: () => Effect.die("unexpected checkpoint"), captureHeadCheckpoint: () => Effect.die("unexpected checkpoint"), captureCheckpoint: () => Effect.die("unexpected checkpoint"), hasCheckpointRef: () => Effect.die("unexpected checkpoint"), restoreCheckpoint: () => Effect.die("unexpected checkpoint"), diffCheckpoints: () => Effect.die("unexpected checkpoint"), listAuthoredPaths: () => Effect.die("unexpected checkpoint"), deleteCheckpointRefs: () => Effect.die("unexpected checkpoint") },
+    checkpoints: {
+      resolveCleanHead: () => Effect.die("unexpected checkpoint"), captureHeadCheckpoint: () => Effect.die("unexpected checkpoint"), captureCheckpoint: () => Effect.die("unexpected checkpoint"),
+      hasCheckpointRef: () => Effect.die("unexpected checkpoint"),
+      restoreCheckpoint: () => Effect.die("unexpected checkpoint"),
+      diffCheckpoints: () => Effect.die("unexpected checkpoint"),
+      listAuthoredPaths: () => Effect.die("unexpected checkpoint"),
+      deleteCheckpointRefs: () => Effect.die("unexpected checkpoint"),
+    },
     execute: () => Effect.die("unexpected driver execute"),
     detectRepository: () => Effect.die("unexpected driver detectRepository"),
     isInsideWorkTree: () => Effect.die("unexpected driver isInsideWorkTree"),
@@ -60,6 +69,19 @@ function layer(input: {
   const gitFileContents = input.gitFileContents;
   return ReviewService.layer.pipe(
     Layer.provide(KnownWorkspaces.layer),
+    Layer.provide(
+      Layer.mock(JjVcsDriver.JjVcsDriver)({
+        checkpoints: emptyCheckpointOps,
+        capabilities: {
+          kind: "jj",
+          supportsWorktrees: true,
+          supportsBookmarks: true,
+          supportsAtomicSnapshot: true,
+          supportsPushDefaultRemote: false,
+          ignoreClassifier: "git-compatible-fallback",
+        },
+      }),
+    ),
     Layer.provide(
       Layer.effectDiscard(
         Effect.gen(function* () {

@@ -1,3 +1,4 @@
+import { isWithinRoot } from "../workspace/isWithinRoot.ts";
 import * as Context from "effect/Context";
 import * as DateTime from "effect/DateTime";
 import * as Effect from "effect/Effect";
@@ -80,7 +81,7 @@ export const make = Effect.gen(function* () {
       canonicalizePath(config.cwd),
     ]);
     if (
-      KnownWorkspaces.isWithinRoot(path, candidate, workspaceRoot) ||
+      isWithinRoot(path, candidate, workspaceRoot) ||
       (yield* knownWorkspaces.contains(candidate))
     ) {
       return;
