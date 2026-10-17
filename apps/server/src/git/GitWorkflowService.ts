@@ -40,10 +40,14 @@ import * as VcsDriverRegistry from "../vcs/VcsDriverRegistry.ts";
 import { withWorkspaceLease } from "../workspace/workspaceLease.ts";
 
 /**
- * The routed workflow surface. Native implementations share these signatures for their supported
- * operations; unsupported operations fail at the routing boundary rather than falling back to Git.
+ * The workflow surface every VCS kind implements. `GitWorkflowService` routes by kind; the Git and
+ * Jujutsu implementations both satisfy this type, so a future change to a shared signature fails to
+ * compile in both lanes instead of silently drifting in one.
  */
 export interface VcsWorkflowOps {
+  readonly createPullRequest: (
+    input: Parameters<GitManager.GitManager["Service"]["createPullRequest"]>[0],
+  ) => ReturnType<GitManager.GitManager["Service"]["createPullRequest"]>;
   readonly hasCommit: (input: {
     readonly cwd: string;
     readonly refName: string;
@@ -281,6 +285,21 @@ export const make = Effect.gen(function* () {
   const jjWorkflow = yield* JjWorkflow.JjWorkflow;
   const jj = yield* JjVcsDriver.JjVcsDriver;
 
+  const withJjCheckoutLease = <A, E, R>(cwd: string, effect: Effect.Effect<A, E, R>) =>
+    registry.resolve({ cwd }).pipe(
+      Effect.mapError(
+        (cause) =>
+          new GitCommandError({
+            operation: "GitWorkflowService.withJjCheckoutLease",
+            command: "vcs-route",
+            cwd,
+            detail: "Failed to resolve the workspace for its checkout lease.",
+            cause,
+          }),
+      ),
+      Effect.flatMap((handle) => withCheckoutLease(handle.repository.rootPath, effect)),
+    );
+
   /**
    * The driver kind that owns a project cwd. `null` means "not a repository", which is what the
    * `nonRepository*` shapes already express, and an unknown kind degrades to it too. A detection
@@ -333,34 +352,6 @@ export const make = Effect.gen(function* () {
         cwd,
         detail: "Failed to resolve the VCS driver for this Git workflow.",
         cause: missingRepositoryCause(cwd),
-      }),
-    );
-
-  const unsupportedJjCause = (operation: string) =>
-    new VcsUnsupportedOperationError({
-      operation,
-      kind: "jj",
-      detail: "This operation is not supported for Jujutsu repositories.",
-    });
-
-  const unsupportedJjCommand = (operation: string, cwd: string) =>
-    Effect.fail(
-      new GitCommandError({
-        operation,
-        command: "vcs-route",
-        cwd,
-        detail: "This operation is not supported for Jujutsu repositories.",
-        cause: unsupportedJjCause(operation),
-      }),
-    );
-
-  const unsupportedJjWorkflow = (operation: string, cwd: string) =>
-    Effect.fail(
-      new GitManagerError({
-        operation,
-        cwd,
-        detail: "This operation is not supported for Jujutsu repositories.",
-        cause: unsupportedJjCause(operation),
       }),
     );
 
@@ -784,9 +775,13 @@ export const make = Effect.gen(function* () {
     pullCurrentBranch: Effect.fn("GitWorkflowService.pullCurrentBranch")((cwd) =>
       route("GitWorkflowService.pullCurrentBranch", commandRouting, {
         git: () => git.pullCurrentBranch(cwd),
-        jj: () => unsupportedJjCommand("GitWorkflowService.pullCurrentBranch", cwd),
+        jj: () => withJjCheckoutLease(cwd, jjWorkflow.pullCurrentBranch(cwd)),
       })({ cwd }),
     ),
+    createPullRequest: route("GitWorkflowService.createPullRequest", workflowRouting, {
+      git: gitManager.createPullRequest,
+      jj: jjWorkflow.createPullRequest,
+    }),
     runStackedAction: Effect.fn("GitWorkflowService.runStackedAction")((input, options) =>
       route("GitWorkflowService.runStackedAction", workflowRouting, {
         git: (actionInput: GitRunStackedActionInput) =>
@@ -799,12 +794,12 @@ export const make = Effect.gen(function* () {
             ),
           ),
         jj: (actionInput: GitRunStackedActionInput) =>
-          unsupportedJjWorkflow("GitWorkflowService.runStackedAction", actionInput.cwd),
+          withJjCheckoutLease(actionInput.cwd, jjWorkflow.runStackedAction(actionInput, options)),
       })(input),
     ),
     resolvePullRequest: route("GitWorkflowService.resolvePullRequest", workflowRouting, {
       git: gitManager.resolvePullRequest,
-      jj: (input) => unsupportedJjWorkflow("GitWorkflowService.resolvePullRequest", input.cwd),
+      jj: jjWorkflow.resolvePullRequest,
     }),
     preparePullRequestThread: route(
       "GitWorkflowService.preparePullRequestThread",
@@ -822,7 +817,9 @@ export const make = Effect.gen(function* () {
               )
             : gitManager.preparePullRequestThread(input),
         jj: (input) =>
-          unsupportedJjWorkflow("GitWorkflowService.preparePullRequestThread", input.cwd),
+          input.mode === "local"
+            ? withJjCheckoutLease(input.cwd, jjWorkflow.preparePullRequestThread(input))
+            : jjWorkflow.preparePullRequestThread(input),
       },
     ),
     listRefs: routeOr(
@@ -914,7 +911,7 @@ export const make = Effect.gen(function* () {
               ),
             )
           : git.createRef(input),
-      jj: jjWorkflow.createRef,
+      jj: (input) => withJjCheckoutLease(input.cwd, jjWorkflow.createRef(input)),
     }),
     // The Git driver's `switchRef` needs a `Scope` the service closes locally; the declared type
     // carries none, and leaking it would reach every caller. The jj arm needs no scope.
@@ -925,7 +922,7 @@ export const make = Effect.gen(function* () {
             withCheckoutLease(handle.repository.rootPath, Effect.scoped(git.switchRef(input))),
           ),
         ),
-      jj: jjWorkflow.switchRef,
+      jj: (input) => withJjCheckoutLease(input.cwd, jjWorkflow.switchRef(input)),
     }),
     renameBranch: route("GitWorkflowService.renameBranch", workflowRouting, {
       git: git.renameBranch,

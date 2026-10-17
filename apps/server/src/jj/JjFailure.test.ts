@@ -3,7 +3,7 @@ import { GitCommandError, VcsProcessExitError } from "@t3tools/contracts";
 import * as Effect from "effect/Effect";
 import * as Schema from "effect/Schema";
 
-import { JjProcessExitError } from "../vcs/JjProcess.ts";
+import { JjProcessExitError } from "../vcs/JjProcessExitError.ts";
 import { jjFailure, mapJjFailure } from "./JjFailure.ts";
 
 const encodeError = Schema.encodeEffect(Schema.fromJsonString(GitCommandError));

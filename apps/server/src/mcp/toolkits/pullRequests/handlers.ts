@@ -22,7 +22,7 @@ import * as Base64Url from "effect/encoding/Base64Url";
 import * as Option from "effect/Option";
 import * as Schema from "effect/Schema";
 
-import * as GitManager from "../../../git/GitManager.ts";
+import * as GitWorkflowService from "../../../git/GitWorkflowService.ts";
 import * as Orchestrator from "../../../orchestration-v2/Orchestrator.ts";
 import * as ProjectService from "../../../project/ProjectService.ts";
 import * as PullRequestWatchService from "../../../pullRequest/PullRequestWatchService.ts";
@@ -267,7 +267,7 @@ const make = Effect.gen(function* () {
   const reviewGuides = yield* PullRequestReviewGuideService.PullRequestReviewGuideService;
   const watches = yield* PullRequestWatchService.PullRequestWatchService;
   const pullRequests = yield* PullRequestService.PullRequestService;
-  const git = yield* GitManager.GitManager;
+  const git = yield* GitWorkflowService.GitWorkflowService;
 
   const projects = yield* ProjectService.ProjectService;
   const random = yield* SecureRandom.SecureRandom;

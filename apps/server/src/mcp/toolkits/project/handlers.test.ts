@@ -1,5 +1,7 @@
 import * as GitWorkflowService from "../../../git/GitWorkflowService.ts";
 import * as VcsDriverRegistry from "../../../vcs/VcsDriverRegistry.ts";
+import * as JjVcsDriver from "../../../vcs/JjVcsDriver.ts";
+import * as JjWorkflow from "../../../jj/JjWorkflow.ts";
 import * as ProviderRegistry from "../../../provider/ProviderRegistry.ts";
 import { expect, it } from "@effect/vitest";
 import {
@@ -1091,6 +1093,8 @@ it.effect("an agent's clone is not cut off while git is still transferring", () 
       launched: [],
     });
     const repositories = Repositories.layer.pipe(
+      Layer.provide(JjVcsDriver.layer),
+      Layer.provide(Layer.mock(JjWorkflow.JjWorkflow)({})),
       Layer.provide(Layer.mock(VcsDriverRegistry.VcsDriverRegistry)({})),
       Layer.provide(
         Layer.mock(SourceControlProviderRegistry.SourceControlProviderRegistry)({

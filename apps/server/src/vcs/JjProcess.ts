@@ -1,15 +1,9 @@
 import * as Effect from "effect/Effect";
-import * as Schema from "effect/Schema";
 
-import { GitCommandFailureReason, type VcsError, VcsProcessExitError } from "@t3tools/contracts";
+import { type VcsError, VcsProcessExitError } from "@t3tools/contracts";
 import { classifyGitFailure, STATUS_UPSTREAM_REFRESH_ENV } from "./GitVcsDriverCore.ts";
+import { JjProcessExitError } from "./JjProcessExitError.ts";
 import * as VcsProcess from "./VcsProcess.ts";
-
-export class JjProcessExitError extends VcsProcessExitError.extend<JjProcessExitError>(
-  "JjProcessExitError",
-)({
-  reason: Schema.optional(GitCommandFailureReason),
-}) {}
 
 function processExitError(
   operation: string,

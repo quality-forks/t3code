@@ -2,7 +2,7 @@ import * as Effect from "effect/Effect";
 import * as Schema from "effect/Schema";
 
 import { GitCommandError, VcsUnsupportedOperationError } from "@t3tools/contracts";
-import { JjProcessExitError } from "../vcs/JjProcess.ts";
+import { JjProcessExitError } from "../vcs/JjProcessExitError.ts";
 
 const isUnsupportedOperationError = Schema.is(VcsUnsupportedOperationError);
 const isGitCommandError = Schema.is(GitCommandError);

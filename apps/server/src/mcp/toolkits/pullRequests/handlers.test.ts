@@ -27,7 +27,7 @@ import * as Ref from "effect/Ref";
 import * as Stream from "effect/Stream";
 import type { Tool } from "effect/ai";
 
-import * as GitManager from "../../../git/GitManager.ts";
+import * as GitWorkflowService from "../../../git/GitWorkflowService.ts";
 import * as Orchestrator from "../../../orchestration-v2/Orchestrator.ts";
 import {
   type PullRequestTestThread,
@@ -154,7 +154,7 @@ interface HarnessOptions {
     PullRequestOperationError
   >;
   readonly pullRequests?: Partial<PullRequestService.PullRequestService["Service"]>;
-  readonly git?: Partial<GitManager.GitManager["Service"]>;
+  readonly git?: Partial<GitWorkflowService.GitWorkflowService["Service"]>;
 }
 
 const NO_GUIDE: PullRequestReviewGuideResult = { guide: null, run: null, currentHeadSha: "head-1" };
@@ -208,7 +208,7 @@ const makeHarness = Effect.fn("makePullRequestsToolkitHarness")(function* (
       dispatch,
     }),
     Layer.mock(PullRequestService.PullRequestService)(options.pullRequests ?? {}),
-    Layer.mock(GitManager.GitManager)(options.git ?? {}),
+    Layer.mock(GitWorkflowService.GitWorkflowService)(options.git ?? {}),
     Layer.succeed(SecureRandom.SecureRandom, testCrypto),
     McpToolAccessTestkit.liveThreadsLayer,
   );

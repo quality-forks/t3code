@@ -32,6 +32,7 @@ import * as GitManager from "../git/GitManager.ts";
 import * as ProjectSetupScriptRunner from "../project/ProjectSetupScriptRunner.ts";
 import * as PullRequestService from "../pullRequest/PullRequestService.ts";
 import * as ServerSettings from "../serverSettings.ts";
+import * as GitWorkflowService from "../git/GitWorkflowService.ts";
 import { forkParked } from "../serverActivation.ts";
 import * as TerminalManager from "../terminal/Manager.ts";
 import * as GitVcsDriver from "../vcs/GitVcsDriver.ts";
@@ -334,6 +335,7 @@ export const make = Effect.gen(function* () {
   const projectStore = yield* ProjectStore.ProjectStoreV2;
   const settingsService = yield* ServerSettings.ServerSettingsService;
   const git = yield* GitManager.GitManager;
+  const workflow = yield* GitWorkflowService.GitWorkflowService;
   const pullRequests = yield* PullRequestService.PullRequestService;
   const random = yield* SecureRandom.SecureRandom;
   const fileSystem = yield* FileSystem.FileSystem;
@@ -469,6 +471,7 @@ export const make = Effect.gen(function* () {
           thread.branchPullRequest != null,
       );
     const lookupCwdByThreadId = new Map<string, string>();
+    const failedCheckoutThreadIds = new Set<ThreadId>();
     yield* Effect.forEach(
       lookupCandidates,
       (thread) =>
@@ -477,16 +480,25 @@ export const make = Effect.gen(function* () {
           if (project === undefined || thread.branch === null) return;
           // A worktree folder can outlive its .git, and git there fails with not_a_repository.
           // An unreadable .git keeps the worktree, so git fails there and the thread is skipped.
-          lookupCwdByThreadId.set(
-            thread.id,
+          const checkoutCwd =
             thread.worktreePath !== null &&
-              (yield* fileSystem
-                .exists(path.join(thread.worktreePath, ".git"))
-                .pipe(Effect.orElseSucceed(() => true)))
+            (yield* fileSystem
+              .exists(path.join(thread.worktreePath, ".git"))
+              .pipe(Effect.orElseSucceed(() => true)))
               ? thread.worktreePath
-              : project.workspaceRoot,
-          );
-        }),
+              : project.workspaceRoot;
+          const cwd = yield* workflow.providerCwd(checkoutCwd);
+          lookupCwdByThreadId.set(thread.id, cwd);
+        }).pipe(
+          Effect.catchCauseIf(
+            (cause) => !Cause.hasInterruptsOnly(cause),
+            (cause) =>
+              Effect.logWarning("automatic thread settlement checkout lookup failed", {
+                threadId: thread.id,
+                cause: Cause.pretty(cause),
+              }).pipe(Effect.tap(() => Effect.sync(() => failedCheckoutThreadIds.add(thread.id)))),
+          ),
+        ),
       { concurrency: 8, discard: true },
     );
     if (mergedPullRequest !== null) {
@@ -515,7 +527,10 @@ export const make = Effect.gen(function* () {
         cwd === undefined ? ["missing-project", thread.id] : ["branch", cwd, thread.branch],
       );
     };
-    const groups = Map.groupBy(lookupCandidates, lookupKey);
+    const groups = Map.groupBy(
+      lookupCandidates.filter((thread) => !failedCheckoutThreadIds.has(thread.id)),
+      lookupKey,
+    );
     // A thread with no link of its own does not settle from a pull request another thread links,
     // archived threads included.
     const explicitlyLinked = new Set(

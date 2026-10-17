@@ -191,21 +191,19 @@ export class GitManager extends Context.Service<
       input: GitRunStackedActionInput,
       options?: GitRunStackedActionOptions,
     ) => Effect.Effect<GitRunStackedActionResult, GitManagerServiceError>;
-    /** Pushes the checkout's branch when needed, then opens its PR or returns the one already open. */
-    readonly createPullRequest: (input: {
-      readonly cwd: string;
-      readonly projectId: ProjectId;
-      readonly title: string;
-      readonly body: string;
-      readonly baseBranch?: string | undefined;
-      readonly draft?: boolean | undefined;
-      /**
-       * Opens it where only people with write access see it. The branch goes to the host's
-       * private companion repository and never to the repository itself. Fails on a host
-       * without private pull requests.
-       */
-      readonly private?: boolean | undefined;
-    }) => Effect.Effect<GitCreatePullRequestResult, GitManagerServiceError>;
+    /** Opens a PR for the pushed ref. Native workflows supply their reads; host/draft handling is shared. */
+    readonly createPullRequest: (
+      input: {
+        readonly cwd: string;
+        readonly projectId: ProjectId;
+        readonly title: string;
+        readonly body: string;
+        readonly baseBranch?: string | undefined;
+        readonly draft?: boolean | undefined;
+        readonly private?: boolean | undefined;
+      },
+      reads?: ChangeRequestVcsReads,
+    ) => Effect.Effect<GitCreatePullRequestResult, GitManagerServiceError>;
     readonly subscribePullRequestStateChanges: Effect.Effect<
       Stream.Stream<ThreadPullRequestKey>,
       never,
@@ -2075,14 +2073,43 @@ export const make = Effect.gen(function* () {
 
   const createPullRequest: GitManager["Service"]["createPullRequest"] = Effect.fn(
     "GitManager.createPullRequest",
-  )(function* (input) {
+  )(function* (input, vcsReads) {
+    if (vcsReads !== undefined && input.private === true) {
+      return yield* new GitManagerError({
+        operation: "createPullRequest",
+        cwd: input.cwd,
+        detail: "Private pull requests are unavailable for Jujutsu workspaces.",
+      });
+    }
+    const providerCwd = vcsReads?.providerCwd ?? input.cwd;
     const result =
-      input.private === true
-        ? yield* openPrivatePullRequest(input)
-        : yield* pushAndOpenPullRequest(input);
+      vcsReads === undefined
+        ? input.private === true
+          ? yield* openPrivatePullRequest(input)
+          : yield* pushAndOpenPullRequest(input)
+        : yield* Effect.gen(function* () {
+            const provider = yield* sourceControlProvider(providerCwd);
+            return yield* withChangeRequestServices(
+              runChangeRequestStep({
+                cwd: input.cwd,
+                fallbackRefName: null,
+                emit: () => Effect.void,
+                reads: vcsReads,
+                provider,
+                tempDir,
+                requestedBase: input.baseBranch,
+                content: { title: input.title, body: input.body },
+                draft: input.draft === true,
+              }),
+            );
+          }).pipe(
+            Effect.tap((result) =>
+              result.status === "created" ? invalidateStatus(providerCwd) : Effect.void,
+            ),
+          );
     const openedAsDraft =
       result.status === "created" &&
-      (yield* sourceControlProvider(input.cwd)).createsDraftChangeRequests === true;
+      (yield* sourceControlProvider(providerCwd)).createsDraftChangeRequests === true;
     if (input.draft === true && !openedAsDraft && !(yield* draftOpened(input, result))) {
       // A retry finds the open PR and drafts it then.
       return yield* new GitManagerError({

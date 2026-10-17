@@ -68,7 +68,7 @@ In a colocated repo every jj commit, `@` included, is a real Git object in
 
 - Snapshot and restore are jj only. Git's `HEAD` is not the working-copy change `@`; `git restore` or `git clean` bypasses jj's working-copy state even in a colocated secondary workspace.
 - Checkpoint diffs use Git plumbing between captured trees, including captured merges. Review diffs use Git plumbing for single-parent changes and `jj diff --git` for merged-parent baselines, retaining rename pairs in numstat metadata.
-- Hosting operations and per-thread merge-base config use the main workspace root and its `.git/config`. Local bookmarks are exported as Git branch refs in the colocated store. Background status fetches use Git with noninteractive authentication and write only `refs/t3/remotes/<encoded-remote>/*`, a namespace jj does not import. Fetch disables Git's configured remote-tracking ref mappings as well. Ahead counts use jj's nonempty changes above the Git merge bases; behind counts read the fetched Git objects. A background remote update therefore cannot move a tracked local bookmark or detach the workspace from it.
+- Hosting operations and per-thread merge-base config use the main workspace root and its `.git/config`. Local bookmarks are exported as Git branch refs in the colocated store. Explicit fetch, push and bookmark movement belong to jj, not Git checkout commands. Background status fetches use Git with noninteractive authentication and write only `refs/t3/remotes/<encoded-remote>/*`, a namespace jj does not import. Fetch disables Git's configured remote-tracking ref mappings as well. Ahead counts use jj's nonempty changes above the Git merge bases; behind counts read the fetched Git objects. A background remote update therefore cannot move a tracked local bookmark or detach the workspace from it.
 
 At the driver level, a jj repo with no reachable `.git` is reported unusable.
 [`JjRepo.resolveJjRepoPaths`](../../apps/server/src/vcs/JjRepo.ts)
@@ -101,3 +101,35 @@ a same-named local bookmark contains unpublished commits. Tracking does not repl
 Bookmark policy checks literal names, without stripping `refs/`, `heads/`, `remotes/` or remote prefixes. Private `t3code/import/` bookmarks are hidden from listings and automatic default/nearest-bookmark selection. Switch and workspace requests refuse that literal prefix, but explicit revision selection (including review refs and other spellings) is not a protection boundary: the same commit is accessible by id. Ordinary remote selection refuses to create a reserved local bookmark; choose another local name instead. Existing local PR aliases remain selectable, and controlled PR import may create and track them. Remote-qualified workspace bases such as `origin/main` retain their existing remote resolution.
 
 Non-forced manual workspace removal checks snapshot diagnostics and independently inspects tracked and non-ignored untracked files against the snapshot using a temporary Git index in `JjDiskInspection.ts`. Submodule paths must be absent or empty directories, with no repository state; initialized, nonempty or uncertain paths block removal. Incomplete snapshots or inconclusive disk inspection keep the files and report the reason. Explicit force retains its destructive behavior.
+
+## Commit, push and pull preserve the user's change
+
+Managed workspaces use their own bookmark. Other workspaces first use the nearest eligible
+bookmarked descendant of `@`, then the nearest bookmarked ancestor. Multiple eligible descendant
+branches or names on one change are refused as ambiguous, never silently selected or redirected
+to `main`. Editing `main <- x1(@) <- x2[feat]` therefore commits and pushes `feat`, never `main`;
+bookmark movement retains the descendant tip instead of rewinding it to `@-`. Push-only and
+create-change-request actions refuse if the selected bookmark includes the current `@` anywhere
+in its ancestry: commit the change first. Commit-and-push remains supported mid-stack.
+
+Commit uses the typed message when nonblank, then the existing change description, then generated
+text. The selected text retains its exact trimmed formatting; a new bookmark derives its name from
+that same text. Push-only bookmark names use `@-`'s description, not dirty `@`.
+Conflicted working-copy changes are refused before commit or push. Pull refuses unpublished commits,
+including commits above the bookmark, but not dirty files alone. It rebases with
+`jj rebase -s @ -d <bookmark>` so unbookmarked descendants move with the change.
+Pull creates an empty working-copy child of the updated bookmark when editing its old pushed target,
+so the next edit cannot rewrite published work. An intentionally edited earlier ancestor stays in
+place instead of rebasing onto its own descendant. When a local amend rewrites the remote bookmark's
+target, Pull refuses with push guidance rather than rebasing the change onto its own predecessor.
+
+Publishing adds the remote before pushing. An actual first-push transport failure uses the same
+bounded hosting guidance as Git publishing, including the actual allocated remote name, and
+preserves that guidance through the public repository-service error. Local jj preflight refusals,
+such as an undescribed change, retain their actionable explanation instead. The remote remains
+for retry. Git's error mapper and publishing implementation are unchanged.
+
+PR checkout refuses conflicted destination bookmarks before comparing ancestry or moving them.
+Cross-repository PR heads use aliases named `t3code/pr-<digits>/<head>`. T3 refuses every push of a bookmark matching `^t3code/(?:pr-[0-9]+/|import/)`, before bookmark movement or transport. Rename an alias to take ownership and push it as your own branch. Ordinary create, rename and new-workspace actions refuse reserved destination names; `t3code/pr-review-fixes` is ordinary. Same-repository PR heads retain their real branch name.
+
+Temporary `t3code/import/` bookmarks are private: listing, pickers and automatic ancestor/descendant name resolution exclude them. Switch/workspace requests refuse the literal private prefix; explicit selection by other spellings or review refs is allowed. Push refuses matching literal local names even if cleanup failed. PR checkout uses host-provided and generated names exactly for lookup, tracking, ancestry, movement and workspace selection. Native jj import requires a temporary head ref to discover the fetched object; cleanup attempts both deletion and import and logs failures. Source remote/merge configuration supports PR identity and lookup only. Protection depends solely on the local name, with no configuration marker or protection lock.

@@ -12,6 +12,7 @@ import type { VcsWorkflowOps } from "../git/GitWorkflowService.ts";
 import { filterBranchesForListQuery, paginateBranches } from "../vcs/GitVcsDriverCore.ts";
 import * as JjProcess from "../vcs/JjProcess.ts";
 import {
+  isReservedBookmarkName,
   isPrivateImportBookmarkName,
   bookmarkNameArgument,
   exactStringPattern,
@@ -115,7 +116,7 @@ export const makeJjRefs = Effect.fn("JjRefs.makeJjRefs")(function* (
       { concurrency: 4 },
     );
     return {
-      bookmarks,
+      bookmarks: bookmarks.filter((bookmark) => !isPrivateImportBookmarkName(bookmark.name)),
       workspaces,
       hasPrimaryRemote: remoteNames.length > 0,
       defaultBookmark,
@@ -178,7 +179,7 @@ export const makeJjRefs = Effect.fn("JjRefs.makeJjRefs")(function* (
     );
 
     const localRefs: ReadonlyArray<VcsRef> = snapshot.bookmarks
-      .filter((bookmark) => bookmark.remote === null)
+      .filter((bookmark) => bookmark.remote === null && !isPrivateImportBookmarkName(bookmark.name))
       .toSorted((left, right) => right.targetTimestamp - left.targetTimestamp)
       .map(
         (bookmark) =>
@@ -266,6 +267,12 @@ export const makeJjRefs = Effect.fn("JjRefs.makeJjRefs")(function* (
 
   const createRef: JjRefsOps["createRef"] = Effect.fn("JjRefs.createRef")(function* (input) {
     const operation = "JjRefs.createRef";
+    if (isReservedBookmarkName(input.refName))
+      return yield* jjFailure(
+        operation,
+        input.cwd,
+        "This bookmark name is reserved for checked-out pull request heads; choose another name.",
+      );
     yield* repoPathsFor(operation, input.cwd);
     yield* assertBookmarkUsable(driver, operation, input.cwd, input.refName);
 
@@ -341,6 +348,12 @@ export const makeJjRefs = Effect.fn("JjRefs.makeJjRefs")(function* (
     function* (input) {
       if (input.oldBranch === input.newBranch) return { branch: input.newBranch };
       const operation = "JjRefs.renameBranch";
+      if (isReservedBookmarkName(input.newBranch))
+        return yield* jjFailure(
+          operation,
+          input.cwd,
+          "This bookmark name is reserved for checked-out pull request heads; choose another name.",
+        );
       const paths = yield* repoPathsFor(operation, input.cwd);
       yield* assertBookmarkUsable(driver, operation, input.cwd, input.oldBranch);
       let targetBranch = input.newBranch;
@@ -349,7 +362,11 @@ export const makeJjRefs = Effect.fn("JjRefs.makeJjRefs")(function* (
           .listBookmarks(input.cwd)
           .pipe(mapJjFailure(operation, input.cwd, "Could not list Jujutsu bookmarks."));
         const names = new Set(
-          bookmarks.filter((bookmark) => bookmark.remote === null).map((bookmark) => bookmark.name),
+          bookmarks
+            .filter(
+              (bookmark) => bookmark.remote === null && !isPrivateImportBookmarkName(bookmark.name),
+            )
+            .map((bookmark) => bookmark.name),
         );
         let suffix = 1;
         while (names.has(targetBranch) && suffix <= 100) {
@@ -372,6 +389,18 @@ export const makeJjRefs = Effect.fn("JjRefs.makeJjRefs")(function* (
       yield* workspaceOperationLocks.withLock(
         paths.mainWorkspaceRoot,
         Effect.gen(function* () {
+          const bookmarks = yield* driver
+            .listBookmarks(input.cwd)
+            .pipe(mapJjFailure(operation, input.cwd, "Could not inspect the rename destination."));
+          if (
+            bookmarks.some((bookmark) => bookmark.remote === null && bookmark.name === targetBranch)
+          ) {
+            return yield* jjFailure(
+              operation,
+              input.cwd,
+              `Could not rename bookmark ${input.oldBranch} to ${targetBranch}: destination already exists; choose another name.`,
+            );
+          }
           const workspaces = yield* driver
             .listWorkspaces(input.cwd)
             .pipe(mapJjFailure(operation, input.cwd, "Could not list Jujutsu workspaces."));
@@ -448,16 +477,14 @@ export const makeJjRefs = Effect.fn("JjRefs.makeJjRefs")(function* (
               return yield* Effect.failCause(workspaceRename.cause);
             }
           }
-        }),
+          yield* moveBookmarkGitConfig(process, {
+            gitDir: paths.gitDir,
+            cwd: input.cwd,
+            oldName: input.oldBranch,
+            newName: targetBranch,
+          });
+        }).pipe(Effect.ensuring(driver.invalidateRepoCaches(input.cwd))),
       );
-
-      yield* moveBookmarkGitConfig(process, {
-        gitDir: paths.gitDir,
-        cwd: input.cwd,
-        oldName: input.oldBranch,
-        newName: targetBranch,
-      });
-      yield* driver.invalidateRepoCaches(input.cwd);
 
       return { branch: targetBranch };
     },
@@ -472,7 +499,7 @@ export const makeJjRefs = Effect.fn("JjRefs.makeJjRefs")(function* (
       .listBookmarks(cwd)
       .pipe(mapJjFailure(operation, cwd, "Could not read this repository's bookmarks."));
     return bookmarks
-      .filter((bookmark) => bookmark.remote === null)
+      .filter((bookmark) => bookmark.remote === null && !isPrivateImportBookmarkName(bookmark.name))
       .map((bookmark) => bookmark.name);
   });
 
@@ -582,7 +609,7 @@ const moveBookmarkGitConfig = Effect.fn("JjRefs.moveBookmarkGitConfig")(function
       mapJjFailure(
         "JjRefs.moveBookmarkGitConfig",
         input.cwd,
-        "Could not update bookmark configuration.",
+        `Bookmark configuration migration ${input.oldName} -> ${input.newName} failed. Inspect the upstream configuration before retrying.`,
       ),
     );
 
@@ -604,7 +631,10 @@ const moveBookmarkGitConfig = Effect.fn("JjRefs.moveBookmarkGitConfig")(function
     if (existing.length === 0) {
       continue;
     }
-    const value = key === "merge" ? `refs/heads/${input.newName}` : existing;
+    const value =
+      key === "merge" && !isReservedBookmarkName(input.oldName)
+        ? `refs/heads/${input.newName}`
+        : existing;
     yield* gitWrite(["config", `branch.${input.newName}.${key}`, value]);
     yield* gitWrite(["config", "--unset", `branch.${input.oldName}.${key}`]);
   }

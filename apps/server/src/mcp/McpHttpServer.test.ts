@@ -116,6 +116,7 @@ const layerPullRequestsTest = McpHttpServer.layerPullRequestsToolkit.pipe(
       Layer.mock(PullRequestReviewGuideService.PullRequestReviewGuideService)({}),
       Layer.mock(PullRequestService.PullRequestService)({}),
       Layer.mock(GitManager.GitManager)({}),
+      Layer.mock(GitWorkflowService.GitWorkflowService)({}),
       Layer.mock(Orchestrator.OrchestratorV2)({}),
       Layer.mock(ProjectionStore.ProjectionStoreV2)({}),
       NodeServices.layer,
@@ -1898,6 +1899,7 @@ it.effect(
                 servesProject: (projectId) => Effect.succeed(projectId !== "project-noForgeToken"),
               }),
               Layer.mock(GitManager.GitManager)({}),
+              Layer.mock(GitWorkflowService.GitWorkflowService)({}),
               Layer.mock(Orchestrator.OrchestratorV2)({}),
               Layer.mock(ProjectionStore.ProjectionStoreV2)({
                 getThreadShell: (threadId) =>

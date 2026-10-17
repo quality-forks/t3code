@@ -981,7 +981,6 @@ export const makeVcsDriverShape = Effect.gen(function* () {
     ensureUsable(operation, cwd).pipe(Effect.map((paths) => paths.gitDir));
 
   const reviewDiff = makeJjReviewDiff({
-    listBookmarks,
     digest,
     process: vcsProcess,
     ensureGitDir,
@@ -989,6 +988,8 @@ export const makeVcsDriverShape = Effect.gen(function* () {
     currentSegment,
     repoPaths,
     listWorkspaces,
+    listBookmarks,
+    countRevset,
     changeAt,
     listRemoteNames,
     resolveDefaultBookmark,

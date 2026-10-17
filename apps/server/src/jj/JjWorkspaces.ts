@@ -20,6 +20,7 @@ import type { JjRepoPaths } from "../vcs/JjRepo.ts";
 import {
   isJjChangeId,
   isPrivateImportBookmarkName,
+  isReservedBookmarkName,
   bookmarkNameArgument,
   localBookmarkRevset,
   refNameToRevset,
@@ -162,6 +163,13 @@ export const makeJjWorkspaces = (deps: JjWorkspaceOpsDeps): JjWorkspaceOps => {
     const remoteNames = yield* driver
       .listRemoteNames(input.cwd)
       .pipe(mapJjFailure(operation, input.cwd, "Could not read this repository's remotes."));
+    if (input.newRefName !== undefined && isReservedBookmarkName(input.newRefName)) {
+      return yield* jjFailure(
+        operation,
+        input.cwd,
+        "This bookmark name is reserved for checked-out pull request heads; choose another name.",
+      );
+    }
     if (
       [input.refName, input.baseRefName ?? "", input.newRefName ?? ""].some(
         isPrivateImportBookmarkName,

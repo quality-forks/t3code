@@ -23,6 +23,7 @@ import * as Stream from "effect/Stream";
 import * as TestClock from "effect/testing/TestClock";
 
 import * as BackgroundPolicy from "../background/BackgroundPolicy.ts";
+import * as GitWorkflowService from "../git/GitWorkflowService.ts";
 import * as GitManager from "../git/GitManager.ts";
 import * as ProjectStore from "./ProjectStore.ts";
 import * as RepositoryIdentityResolver from "../project/RepositoryIdentityResolver.ts";
@@ -120,6 +121,9 @@ describe("ThreadPullRequestServiceV2 reads", () => {
           listShells: () => Effect.succeed([project]),
           getShell: () => Effect.succeedSome(project),
         }),
+        Layer.mock(GitWorkflowService.GitWorkflowService)({
+          providerCwd: (cwd) => Effect.succeed(cwd),
+        }),
         Layer.mock(GitManager.GitManager)({
           branchPullRequest: (_input, options) =>
             Effect.gen(function* () {
@@ -216,6 +220,9 @@ describe("ThreadPullRequestServiceV2 reads", () => {
             }),
         }),
         Layer.mock(ProjectStore.ProjectStoreV2)({ listShells: () => Effect.succeed([]) }),
+        Layer.mock(GitWorkflowService.GitWorkflowService)({
+          providerCwd: (cwd) => Effect.succeed(cwd),
+        }),
         Layer.mock(GitManager.GitManager)({}),
         Layer.mock(PullRequestService.PullRequestService)({
           notifyLinkedThreadsChanged: Queue.offer(notified, undefined).pipe(Effect.asVoid),
@@ -322,6 +329,9 @@ describe("ThreadPullRequestServiceV2 reads", () => {
         Layer.mock(ProjectStore.ProjectStoreV2)({
           listShells: () => Effect.succeed([project]),
           getShell: () => Effect.succeedSome(project),
+        }),
+        Layer.mock(GitWorkflowService.GitWorkflowService)({
+          providerCwd: (cwd) => Effect.succeed(cwd),
         }),
         Layer.mock(GitManager.GitManager)({
           branchPullRequest: (input, options) =>
@@ -455,6 +465,9 @@ describe("ThreadPullRequestServiceV2 reads", () => {
             listShells: () => Effect.succeed([project]),
             getShell: () => Effect.succeedSome(project),
           }),
+          Layer.mock(GitWorkflowService.GitWorkflowService)({
+            providerCwd: (cwd) => Effect.succeed(cwd),
+          }),
           Layer.mock(GitManager.GitManager)({
             branchPullRequest: (input) =>
               Effect.sync(() => {
@@ -577,6 +590,9 @@ describe("ThreadPullRequestServiceV2 reads", () => {
             Layer.mock(ProjectStore.ProjectStoreV2)({
               listShells: () => Effect.succeed([project]),
               getShell: () => Effect.succeedSome(project),
+            }),
+            Layer.mock(GitWorkflowService.GitWorkflowService)({
+              providerCwd: (cwd) => Effect.succeed(cwd),
             }),
             Layer.mock(GitManager.GitManager)({
               localStatus: ({ cwd }) =>
@@ -724,6 +740,9 @@ describe("ThreadPullRequestServiceV2 reads", () => {
           listShells: () => Effect.succeed([project]),
           getShell: () => Effect.succeedSome(project),
         }),
+        Layer.mock(GitWorkflowService.GitWorkflowService)({
+          providerCwd: (cwd) => Effect.succeed(cwd),
+        }),
         Layer.mock(GitManager.GitManager)({
           branchPullRequest: (input, options) =>
             Effect.gen(function* () {
@@ -863,6 +882,9 @@ describe("ThreadPullRequestServiceV2 reads", () => {
           Layer.mock(ProjectStore.ProjectStoreV2)({
             listShells: () => Effect.succeed([project]),
             getShell: () => Effect.succeedSome(project),
+          }),
+          Layer.mock(GitWorkflowService.GitWorkflowService)({
+            providerCwd: (cwd) => Effect.succeed(cwd),
           }),
           Layer.mock(GitManager.GitManager)({
             branchPullRequest: () => Effect.succeed(detected),
@@ -1004,6 +1026,9 @@ describe("ThreadPullRequestServiceV2 reads", () => {
             listShells: () => Effect.succeed([project]),
             getShell: () => Effect.succeedSome(project),
           }),
+          Layer.mock(GitWorkflowService.GitWorkflowService)({
+            providerCwd: (cwd) => Effect.succeed(cwd),
+          }),
           Layer.mock(GitManager.GitManager)({
             branchPullRequest: () => Effect.succeed(null),
           }),
@@ -1121,6 +1146,9 @@ describe("ThreadPullRequestServiceV2 reads", () => {
         Layer.mock(ProjectStore.ProjectStoreV2)({
           listShells: () => Effect.succeed([project]),
           getShell: () => Effect.succeedSome(project),
+        }),
+        Layer.mock(GitWorkflowService.GitWorkflowService)({
+          providerCwd: (cwd) => Effect.succeed(cwd),
         }),
         Layer.mock(GitManager.GitManager)({
           branchPullRequest: (_input, options) =>
@@ -1260,6 +1288,9 @@ describe("ThreadPullRequestServiceV2 reads", () => {
           getShell: () => Effect.succeedSome(project),
         }),
         // Only the fresh read disagrees with the remembered detection.
+        Layer.mock(GitWorkflowService.GitWorkflowService)({
+          providerCwd: (cwd) => Effect.succeed(cwd),
+        }),
         Layer.mock(GitManager.GitManager)({
           branchPullRequest: (_input, options) =>
             Effect.succeed(options?.freshGitState === true ? fresh : mergedPullRequest43),
