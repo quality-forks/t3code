@@ -13,6 +13,7 @@ import * as ChildProcessSpawner from "effect/process/ChildProcessSpawner";
 import * as ServerConfig from "../config.ts";
 import { refreshPathFromLoginShell } from "../os-jank.ts";
 import * as VcsProcess from "../vcs/VcsProcess.ts";
+import { invalidateJjAvailability } from "../vcs/JjAvailability.ts";
 import {
   detailFromCause,
   failedProbeHint,
@@ -137,7 +138,7 @@ export const make = Effect.gen(function* () {
 
   return SourceControlDiscovery.of({
     discover: Effect.andThen(
-      refreshPath,
+      refreshPath.pipe(Effect.andThen(Effect.sync(() => invalidateJjAvailability(process)))),
       Effect.all({
         versionControlSystems: Effect.all(
           VCS_PROBES.map((entry) => probe(entry)) as ReadonlyArray<Effect.Effect<VcsDiscoveryItem>>,

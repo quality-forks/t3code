@@ -139,8 +139,8 @@ const LIST_REFS_REFRESH_COALESCE_TTL = Duration.seconds(5);
 const LIST_REFS_REFRESH_FAILURE_COOLDOWN = Duration.seconds(30);
 const STATUS_DEFAULT_BRANCH_CACHE_TTL = Duration.minutes(5);
 const STATUS_ORIGIN_EXISTS_CACHE_TTL = Duration.minutes(5);
-const BASE_BRANCH_CACHE_TTL = Duration.minutes(5);
-const STATUS_UPSTREAM_REFRESH_ENV = Object.freeze({
+export const BASE_BRANCH_CACHE_TTL = Duration.minutes(5);
+export const STATUS_UPSTREAM_REFRESH_ENV = Object.freeze({
   GCM_INTERACTIVE: "never",
   GIT_ASKPASS: "",
   GIT_TERMINAL_PROMPT: "0",
@@ -245,7 +245,7 @@ function parseBranchAb(value: string): { ahead: number; behind: number } {
   };
 }
 
-function rawChangeType(status: string): ReviewDiffChangeType {
+export function rawChangeType(status: string): ReviewDiffChangeType {
   switch (status[0]) {
     case "A":
       return "new";
@@ -259,7 +259,7 @@ function rawChangeType(status: string): ReviewDiffChangeType {
 }
 
 // Parses `--numstat -z`, optionally preceded by `--raw` records that carry each file's change type.
-function parseReviewNumstat(stdout: string): ReviewDiffFileStat[] {
+export function parseReviewNumstat(stdout: string): ReviewDiffFileStat[] {
   const fields = stdout.split("\0");
   const changeTypes = new Map<string, ReviewDiffChangeType>();
   const files: ReviewDiffFileStat[] = [];
@@ -574,7 +574,7 @@ const GIT_DIAGNOSTIC_LINE_PATTERN = /^(?:fatal|error):|^!\s|^\s+!\s/;
 const SSH_TRANSPORT_REFUSAL_PATTERN =
   /Permission denied \((?:publickey|password|keyboard-interactive)|Permission denied, please try again|Host key verification failed/i;
 
-function classifyGitFailure(stderr: string): GitCommandFailureReason | null {
+export function classifyGitFailure(stderr: string): GitCommandFailureReason | null {
   const diagnostics = stderr
     .split(/\r?\n/)
     .filter(

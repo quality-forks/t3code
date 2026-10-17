@@ -157,7 +157,7 @@ interface HarnessOptions {
     command: Parameters<ThreadManagement.ThreadManagementService["Service"]["dispatch"]>[0],
     dispatch: ThreadManagement.ThreadManagementService["Service"]["dispatch"],
   ) => ReturnType<ThreadManagement.ThreadManagementService["Service"]["dispatch"]>;
-  readonly isGitRepository?: CheckpointStore.CheckpointStore["Service"]["isGitRepository"];
+  readonly supportsCheckpoints?: CheckpointStore.CheckpointStore["Service"]["supportsCheckpoints"];
 }
 
 function makeHarness(options: HarnessOptions = {}) {
@@ -209,7 +209,7 @@ function makeHarness(options: HarnessOptions = {}) {
     Layer.mock(ProjectCloneTracker.ProjectCloneTracker)({ get: () => Effect.succeed(null) }),
     Layer.mock(TerminalManager.TerminalManager)({ close: closeTerminal }),
     Layer.mock(CheckpointStore.CheckpointStore)({
-      isGitRepository: options.isGitRepository ?? (() => Effect.succeed(true)),
+      supportsCheckpoints: options.supportsCheckpoints ?? (() => Effect.succeed(true)),
     }),
     Layer.succeed(ProjectService.ProjectService, {
       create: () => Effect.die("unused"),
@@ -1126,7 +1126,7 @@ function scratchHarness({ scratch = true }: { readonly scratch?: boolean } = {})
     }),
     git: { repositoryRoot: (cwd) => Effect.succeed(cwd === scratchRoot ? null : cwd) },
     // The other project is a repository Git cannot read, which must not count as none.
-    isGitRepository: (cwd) =>
+    supportsCheckpoints: (cwd) =>
       cwd === scratchRoot
         ? Effect.succeed(false)
         : Effect.fail(
