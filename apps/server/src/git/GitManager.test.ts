@@ -71,6 +71,7 @@ import * as SqlitePersistence from "../persistence/Sqlite.ts";
 import * as ProjectSetupScriptRunner from "../project/ProjectSetupScriptRunner.ts";
 import * as ProviderRegistry from "../provider/ProviderRegistry.ts";
 import * as ServerSettings from "../serverSettings.ts";
+import * as ChangeRequestStep from "../sourceControl/ChangeRequestStep.ts";
 import * as GitManager from "./GitManager.ts";
 
 /** A change request the fake host reports. Omitted fields read as an open, undated request. */
@@ -2616,7 +2617,7 @@ it.layer(layerGitManagerTest)("GitManager", (it) => {
     ],
     ["https://github.example.com/team/repository/issues/42", null],
   ] as const)("reads the repository from the returned PR URL %s", (url, expected) => {
-    expect(GitManager.pullRequestRepositoryKey(url)).toBe(expected);
+    expect(ChangeRequestStep.pullRequestRepositoryKey(url)).toBe(expected);
   });
 
   it.effect("distinguishes Enterprise forks with the same head branch", () =>
@@ -4607,7 +4608,7 @@ it.layer(layerGitManagerTest)("GitManager", (it) => {
           headRepositoryNameWithOwner: `${owner}/project`,
           headRepositoryOwnerLogin: owner,
         };
-        const repository = GitManager.parseRepositoryNameWithOwnerFromRemoteUrl(
+        const repository = ChangeRequestStep.parseRepositoryNameWithOwnerFromRemoteUrl(
           `https://forgejo.example/forgejo/${owner}/project.git`,
           { repositoryNameFromRemoteUrl },
         );
@@ -4618,9 +4619,9 @@ it.layer(layerGitManagerTest)("GitManager", (it) => {
           headRepositoryOwnerLogin: repository?.split("/")[0] ?? null,
           isCrossRepository: owner !== "maria",
         };
-        expect(GitManager.matchesBranchHeadContext(pr, context)).toBe(true);
+        expect(ChangeRequestStep.matchesBranchHeadContext(pr, context)).toBe(true);
         expect(
-          GitManager.matchesBranchHeadContext(pr, {
+          ChangeRequestStep.matchesBranchHeadContext(pr, {
             ...context,
             headRepositoryNameWithOwner: "other/project",
             headRepositoryOwnerLogin: "other",
@@ -4628,7 +4629,7 @@ it.layer(layerGitManagerTest)("GitManager", (it) => {
         ).toBe(false);
       }
       expect(
-        GitManager.parseRepositoryNameWithOwnerFromRemoteUrl(
+        ChangeRequestStep.parseRepositoryNameWithOwnerFromRemoteUrl(
           "https://gitlab.example/group/maria/project.git",
           {},
         ),
@@ -4646,7 +4647,7 @@ it.layer(layerGitManagerTest)("GitManager", (it) => {
       };
 
       expect(
-        GitManager.matchesBranchHeadContext(
+        ChangeRequestStep.matchesBranchHeadContext(
           {
             number: 41,
             title: "Same-repo PR",
@@ -4664,7 +4665,7 @@ it.layer(layerGitManagerTest)("GitManager", (it) => {
       ).toBe(false);
 
       expect(
-        GitManager.matchesBranchHeadContext(
+        ChangeRequestStep.matchesBranchHeadContext(
           {
             number: 142,
             title: "Fork PR",
@@ -4693,7 +4694,7 @@ it.layer(layerGitManagerTest)("GitManager", (it) => {
       };
 
       expect(
-        GitManager.matchesBranchHeadContext(
+        ChangeRequestStep.matchesBranchHeadContext(
           {
             number: 2284,
             title: "Improve branch mismatch warnings",
