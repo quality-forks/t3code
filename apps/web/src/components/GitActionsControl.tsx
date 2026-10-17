@@ -1,3 +1,5 @@
+import { localizedVcsTerminology } from "@t3tools/client-runtime/state/vcs";
+import { resolveVcsUnsupportedReason } from "@t3tools/shared/vcs";
 import { thrownErrorMessage } from "@t3tools/client-runtime/errors";
 import { sourceControlInstallHintText } from "@t3tools/client-runtime/contract-labels";
 import { msg, T, useGT, useMessages, Var } from "gt-react";
@@ -1064,6 +1066,8 @@ function CheckoutGitActionsControl({
   const sourceControlPresentation = getSourceControlPresentation(gitStatus?.sourceControlProvider);
   const changeRequestTerminology = sourceControlPresentation.terminology;
   const SourceControlIcon = sourceControlPresentation.Icon;
+  const vcsTerminology = localizedVcsTerminology(gitStatus, messages);
+  const unsupportedReason = resolveVcsUnsupportedReason(gitStatus);
   const isRepo = gitStatus?.isRepo ?? true;
   const hasPrimaryRemote = gitStatus?.hasPrimaryRemote ?? false;
   const gitStatusForActions = gitStatus;
@@ -1169,6 +1173,7 @@ function CheckoutGitActionsControl({
           action: pendingDefaultBranchAction.action,
           branchName: pendingDefaultBranchAction.branchName,
           includesCommit: pendingDefaultBranchAction.includesCommit,
+          vcsTerminology,
           terminology: changeRequestTerminology,
         },
         messages,
@@ -1181,6 +1186,7 @@ function CheckoutGitActionsControl({
           action: pendingDefaultBranchAction.action,
           branchName: pendingDefaultBranchAction.branchName,
           hasWorkingTreeChanges: gitStatus?.hasWorkingTreeChanges ?? true,
+          vcsTerminology,
         },
         messages,
       )
@@ -1448,7 +1454,11 @@ function CheckoutGitActionsControl({
   };
 
   const canPublishRepository =
-    canWriteSourceControl && isRepo && gitStatusForActions !== null && !hasPrimaryRemote;
+    canWriteSourceControl &&
+    isRepo &&
+    unsupportedReason === null &&
+    gitStatusForActions !== null &&
+    !hasPrimaryRemote;
   const isDetachedHead = gitStatusForActions?.refName === null;
   const isCleanAndBehind =
     gitStatusForActions !== null &&
@@ -1460,7 +1470,8 @@ function CheckoutGitActionsControl({
     menuItems: gitActionMenuItems,
     canWriteSourceControl,
     canPublishRepository,
-    hasNotice: isDetachedHead || isCleanAndBehind || Boolean(gitStatusError),
+    hasNotice:
+      isDetachedHead || isCleanAndBehind || Boolean(gitStatusError) || unsupportedReason !== null,
   });
 
   // A disabled menu cannot refresh on open, and terminal edits or commits publish no status.
@@ -1544,16 +1555,21 @@ function CheckoutGitActionsControl({
       ) : null}
       {isDetachedHead && (
         <p className="px-2 py-1.5 text-xs text-warning">
-          {gt(
-            "Detached HEAD: create and check out a branch to enable push and {term, select, mr {merge request} cr {change request} other {pull request}} actions.",
-            { term: changeRequestTermKind(changeRequestTerminology) },
-          )}
+          {vcsTerminology.kind === "git"
+            ? gt(
+                "Detached HEAD: create and check out a branch to enable push and {term, select, mr {merge request} cr {change request} other {pull request}} actions.",
+                { term: changeRequestTermKind(changeRequestTerminology) },
+              )
+            : vcsTerminology.noRefActionsNotice(changeRequestTerminology.singular)}
         </p>
       )}
       {isCleanAndBehind && (
         <p className="px-2 py-1.5 text-xs text-warning">
           <T>Behind upstream. Pull/rebase first.</T>
         </p>
+      )}
+      {unsupportedReason && (
+        <p className="px-2 py-1.5 text-xs text-destructive">{unsupportedReason}</p>
       )}
       {gitStatusError && <p className="px-2 py-1.5 text-xs text-destructive">{gitStatusError}</p>}
     </>

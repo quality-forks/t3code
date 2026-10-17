@@ -1,4 +1,37 @@
-import type { OrchestrationV2Run, WorktreeSetupSnapshot } from "@t3tools/contracts";
+import type {
+  OrchestrationV2Run,
+  VcsStatusLocalResult,
+  WorktreeSetupSnapshot,
+} from "@t3tools/contracts";
+import { mFallback, msg } from "gt-i18n";
+import type { MFunctionType } from "gt-i18n/types";
+
+/** An explicit base wins; unpublished jj changes are the default only for local starts. */
+export function resolveNewWorkspaceBase(input: {
+  readonly selectedBase: string | null;
+  readonly startFromOrigin: boolean;
+  readonly status: Pick<VcsStatusLocalResult, "vcs" | "committedBase"> | null | undefined;
+  readonly fallbackBase: string | null;
+}): string | null {
+  return (
+    input.selectedBase ??
+    (!input.startFromOrigin && input.status?.vcs?.kind === "jj"
+      ? input.status.committedBase?.changeId
+      : null) ??
+    input.fallbackBase
+  );
+}
+
+/** Pending change-id bases need a human label even after the checkout moves on. */
+export function workspaceBaseLabel(
+  base: string,
+  isJujutsu: boolean,
+  resolve: MFunctionType = mFallback,
+): string {
+  return isJujutsu && /^[k-z]{32}$/.test(base)
+    ? resolve(msg("Current change {id}", { id: base.slice(0, 8) }))
+    : base;
+}
 
 export function resolveVisibleWorktreeSetup(input: {
   live: WorktreeSetupSnapshot | null;

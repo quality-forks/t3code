@@ -607,6 +607,10 @@
       "types": "./src/speech.ts",
       "import": "./src/speech.ts"
     },
+    "./vcs": {
+      "types": "./src/vcs.ts",
+      "import": "./src/vcs.ts"
+    },
     "./pinOrderKey": {
       "types": "./src/pinOrderKey.ts",
       "import": "./src/pinOrderKey.ts"

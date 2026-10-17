@@ -1,3 +1,5 @@
+import { localizedVcsTerminology } from "@t3tools/client-runtime/state/vcs";
+import { resolveVcsUnsupportedReason } from "@t3tools/shared/vcs";
 import * as Dialog from "../../../components/ui/Dialog";
 import { useOpenPullRequest } from "../../../native/useOpenPullRequest";
 import {
@@ -119,12 +121,14 @@ function GitOverviewSheetContent(props: GitOverviewSheetProps) {
     selectedThread !== null && selectedThreadCwd !== null
       ? vcsEnvironment.status({
           environmentId: selectedThread.environmentId,
-          input: { cwd: selectedThreadCwd },
+          input: { cwd: selectedThreadCwd, includeRemote: false },
         })
       : null,
   );
 
-  const isRepo = gitStatus.data?.isRepo ?? true;
+  const terminology = localizedVcsTerminology(gitStatus.data, m);
+  const unsupportedReason = resolveVcsUnsupportedReason(gitStatus.data);
+  const isRepo = (gitStatus.data?.isRepo ?? true) && unsupportedReason === null;
   // A plain folder that tracks repositories has no branch of its own; its turns still have diffs.
   const projectRepositoryCount = selectedThreadProject?.trackedFolders?.length ?? 0;
   const trackedRepositoryCount = isRepo || repository !== undefined ? 0 : projectRepositoryCount;
@@ -150,12 +154,13 @@ function GitOverviewSheetContent(props: GitOverviewSheetProps) {
           ((taskFolder === null ? null : selectedThread?.branch) ??
           selectedThreadProject?.title ??
           gt("Repositories"))
-        : (gitStatus.data?.refName ?? selectedThread?.branch ?? gt("Detached HEAD"));
+        : (gitStatus.data?.refName ?? selectedThread?.branch ?? terminology.noRefLabel);
   const currentStatusSummary =
     repository !== undefined
-      ? gitStatus.data?.isRepo
-        ? `${gitStatus.data.refName ?? gt("Detached HEAD")} · ${statusSummary(gitStatus.data, m)}`
-        : statusSummary(gitStatus.data, m)
+      ? (unsupportedReason ??
+        (gitStatus.data?.isRepo
+          ? `${gitStatus.data.refName ?? terminology.noRefLabel} · ${statusSummary(gitStatus.data, m)}`
+          : statusSummary(gitStatus.data, m)))
       : taskFolder !== null && trackedRepositoryCount > 0
         ? gt(
             "{count, plural, one {{count} repository worktree} other {{count} repository worktrees}}",
@@ -165,14 +170,16 @@ function GitOverviewSheetContent(props: GitOverviewSheetProps) {
           ? gt("{count, plural, one {{count} repository} other {{count} repositories}}", {
               count: trackedRepositoryCount,
             })
-          : statusSummary(gitStatus.data, m);
+          : (unsupportedReason ?? statusSummary(gitStatus.data, m));
   const currentWorktreePath = repository === undefined ? selectedThreadWorktreePath : null;
   const gitOperationLabel = gitState.gitOperationLabel;
   const busy = gitOperationLabel !== null;
   const hasPrimaryRemote = gitStatus.data?.hasPrimaryRemote ?? false;
   const isDefaultRef = gitStatus.data?.isDefaultRef ?? false;
 
-  const menuItems = isRepo ? buildMenuItems(gitStatus.data, busy, hasPrimaryRemote, m) : [];
+  const menuItems = isRepo
+    ? buildMenuItems(gitStatus.data, busy, hasPrimaryRemote, "mobile", m)
+    : [];
 
   const sheetMenuItems = menuItems.map((item) => ({
     item: {
@@ -204,10 +211,16 @@ function GitOverviewSheetContent(props: GitOverviewSheetProps) {
         gt("{term, select, mr {No open MR} cr {No open change request} other {No open PR}}", {
           term,
         }),
-        gt(
-          "{term, select, mr {This branch does not have an open merge request.} cr {This branch does not have an open change request.} other {This branch does not have an open pull request.}}",
-          { term },
-        ),
+        terminology.kind === "git"
+          ? gt(
+              "{term, select, mr {This branch does not have an open merge request.} cr {This branch does not have an open change request.} other {This branch does not have an open pull request.}}",
+              { term },
+            )
+          : gt("This {value0} does not have an open {value1}.", {
+              value0: terminology.refNoun,
+              value1: sourceControlClients.get(gitStatus.data?.sourceControlProvider?.kind)
+                .changeRequest.singular,
+            }),
       );
       return;
     }
@@ -301,9 +314,17 @@ function GitOverviewSheetContent(props: GitOverviewSheetProps) {
     }
     if (item.dialogAction === "push" && (status.aheadCount ?? 0) > 0) {
       const ahead = status.aheadCount ?? 0;
-      return gt("{count, plural, one {{count} commit ahead} other {{count} commits ahead}}", {
-        count: ahead,
-      });
+      return terminology.kind === "git"
+        ? gt("{count, plural, one {{count} commit ahead} other {{count} commits ahead}}", {
+            count: ahead,
+          })
+        : gt(
+            "{kind, select, jj {{count, plural, one {# change ahead} other {# changes ahead}}} other {{count, plural, one {# commit ahead} other {# commits ahead}}}}",
+            {
+              count: ahead,
+              kind: gitStatus.data?.vcs?.kind ?? "git",
+            },
+          );
     }
     if (item.kind === "open_pr" && status.pr?.number != null) {
       return gt(
@@ -377,10 +398,15 @@ function GitOverviewSheetContent(props: GitOverviewSheetProps) {
               label={gt("Pull latest")}
               description={
                 canWriteSourceControl
-                  ? gt(
-                      "{count, plural, one {{count} commit behind upstream} other {{count} commits behind upstream}}",
-                      { count: behindCount },
-                    )
+                  ? terminology.kind === "git"
+                    ? gt(
+                        "{count, plural, one {{count} commit behind upstream} other {{count} commits behind upstream}}",
+                        { count: behindCount },
+                      )
+                    : gt(
+                        "{kind, select, jj {{count, plural, one {# change behind upstream} other {# changes behind upstream}}} other {{count, plural, one {# commit behind upstream} other {# commits behind upstream}}}}",
+                        { count: behindCount, kind: gitStatus.data?.vcs?.kind ?? "git" },
+                      )
                   : gt("This connection cannot change source control.")
               }
               disabled={!canWriteSourceControl || busy || !isRepo}
@@ -413,7 +439,11 @@ function GitOverviewSheetContent(props: GitOverviewSheetProps) {
                 description={
                   trackedRepositoryCount > 0
                     ? gt("Inspect turn diffs")
-                    : gt("Inspect changes, uncommitted edits, and turn diffs")
+                    : terminology.kind === "git"
+                      ? gt("Inspect changes, uncommitted edits, and turn diffs")
+                      : gt("Inspect changes, {value0} edits, and turn diffs", {
+                          value0: terminology.workingTreeNoun,
+                        })
                 }
                 disabled={busy || !(isRepo || trackedRepositoryCount > 0)}
                 onPress={() => {
@@ -429,11 +459,28 @@ function GitOverviewSheetContent(props: GitOverviewSheetProps) {
               />
               <ListRow
                 icon="point.topleft.down.curvedto.point.bottomright.up"
-                label={gt("Branches & worktrees")}
+                label={
+                  terminology.kind === "git"
+                    ? gt("Branches & worktrees")
+                    : gt("{value0} & {value1}", {
+                        value0: terminology.refNounPluralTitle,
+                        value1: terminology.workspaceNounPlural,
+                      })
+                }
                 description={
                   canChangeThreadBranch
-                    ? gt("Switch branch, create branch, or move to a worktree")
-                    : gt("View branches and worktrees")
+                    ? terminology.kind === "git"
+                      ? gt("Switch branch, create branch, or move to a worktree")
+                      : gt("Switch {value0}, create {value0}, or move to a {value1}", {
+                          value0: terminology.refNoun,
+                          value1: terminology.workspaceNoun,
+                        })
+                    : terminology.kind === "git"
+                      ? gt("View branches and worktrees")
+                      : gt("View {value0} and {value1}", {
+                          value0: terminology.refNounPlural,
+                          value1: terminology.workspaceNounPlural,
+                        })
                 }
                 disabled={busy || !isRepo}
                 onPress={() =>
@@ -491,7 +538,7 @@ function GitOverviewSheetContent(props: GitOverviewSheetProps) {
       ) : null}
 
       {currentWorktreePath ? (
-        <ListSection title={gt("Worktree")}>
+        <ListSection title={terminology.workspaceNounTitle}>
           <Text selectable textRole="footnote" className="p-4 text-foreground-muted">
             {currentWorktreePath}
           </Text>

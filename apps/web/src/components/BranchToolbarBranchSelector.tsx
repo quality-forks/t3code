@@ -1,3 +1,5 @@
+import { localizedVcsTerminology } from "@t3tools/client-runtime/state/vcs";
+import { supportsVcsActions } from "@t3tools/shared/vcs";
 import { ThreadDetailsControl } from "./chat/ThreadDetailsControl";
 import { ComposerContextLabel } from "./ComposerContextLabel";
 import { useRightPanelStore } from "../rightPanelStore";
@@ -266,6 +268,8 @@ export function BranchToolbarBranchSelector({
           input: { cwd: branchCwd },
         }),
   );
+  const terminology = localizedVcsTerminology(branchStatusQuery.data, messages);
+  const vcsActionsSupported = supportsVcsActions(branchStatusQuery.data);
   const projectStatusQuery = useEnvironmentQuery(
     activeProjectCwd === null
       ? null
@@ -386,14 +390,24 @@ export function BranchToolbarBranchSelector({
   const [isBranchActionPending, startBranchActionTransition] = useTransition();
   const totalBranchCount = branchRefState.data?.totalCount ?? 0;
   const branchStatusText = isInitialBranchesLoadPending
-    ? gt("Loading refs...")
+    ? terminology.kind === "git"
+      ? gt("Loading refs...")
+      : gt("Loading {value0}...", { value0: terminology.genericRefNounPlural })
     : isFetchingNextPage
-      ? gt("Loading more refs...")
+      ? terminology.kind === "git"
+        ? gt("Loading more refs...")
+        : gt("Loading more {value0}...", { value0: terminology.genericRefNounPlural })
       : hasNextPage
-        ? gt(
-            "{total, plural, one {Showing {shown} of {total} refs} other {Showing {shown} of {total} refs}}",
-            { shown: refs.length, total: totalBranchCount },
-          )
+        ? terminology.kind === "git"
+          ? gt(
+              "{total, plural, one {Showing {shown} of {total} refs} other {Showing {shown} of {total} refs}}",
+              { shown: refs.length, total: totalBranchCount },
+            )
+          : gt("Showing {value0} of {value1} {value2}", {
+              value0: refs.length,
+              value1: totalBranchCount,
+              value2: terminology.genericRefNounPlural,
+            })
         : null;
 
   const copyBranchName = (branchName: string) => {
@@ -682,6 +696,7 @@ export function BranchToolbarBranchSelector({
 
   const handleOpenChange = (open: boolean) => {
     setIsBranchMenuOpen(open);
+    if (open && !vcsActionsSupported) return;
     if (open && !isBranchMenuOpen && branchCwd !== null) {
       void refreshLocalStatusForPicker({
         environmentId,
@@ -704,16 +719,19 @@ export function BranchToolbarBranchSelector({
     [handleOpenChange, isBranchActionPending, isInitialBranchesLoadPending],
   );
 
-  const triggerLabel = resolveBranchTriggerLabel(
-    {
-      activeWorktreePath,
-      effectiveEnvMode,
-      resolvedActiveBranch,
-      resolvedActiveBranchIsRemote,
-      startFromOrigin,
-    },
-    messages,
-  );
+  const triggerLabel =
+    resolvedActiveBranch === null && branchStatusQuery.data?.vcs?.kind === "jj"
+      ? terminology.noRefLabel
+      : resolveBranchTriggerLabel(
+          {
+            activeWorktreePath,
+            effectiveEnvMode,
+            resolvedActiveBranch,
+            resolvedActiveBranchIsRemote,
+            startFromOrigin,
+          },
+          messages,
+        );
 
   const branchPrBranch = resolveBranchToolbarPrBranch({
     activeThreadBranch,
@@ -900,7 +918,7 @@ export function BranchToolbarBranchSelector({
               )
             }
             className="min-w-0 max-w-full active:scale-100"
-            disabled={isInitialBranchesLoadPending || isBranchActionPending}
+            disabled={!vcsActionsSupported || isInitialBranchesLoadPending || isBranchActionPending}
             // NVDA browse mode re-reads a combobox when its attributes change, not when its text does.
             aria-label={gt("Branch: {branch}", { branch: triggerLabel })}
           >

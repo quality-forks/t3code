@@ -14,7 +14,7 @@ import {
   type VcsListRefsResult,
 } from "@t3tools/contracts";
 import { resolveProjectSettings } from "@t3tools/shared/projectSettings";
-
+import { resolveVcsTerminology } from "@t3tools/shared/vcs";
 import * as Cause from "effect/Cause";
 import * as Context from "effect/Context";
 import * as SecureRandom from "effect/crypto/SecureRandom";
@@ -190,18 +190,18 @@ const make = Effect.gen(function* () {
     const localStatus = yield* gitWorkflow
       .localStatus({ cwd: projectCwd })
       .pipe(asOperationFailed("Unable to read repository status"));
-
+    const terms = resolveVcsTerminology(localStatus);
     if (projectIsRepository && !localStatus.isRepo) {
       return yield* failure(
         "invalid_request",
-        `Project workspace '${projectCwd}' is not a git repository.`,
+        `Project workspace '${projectCwd}' is not a ${terms.repositoryAdjective} repository.`,
       );
     }
 
     const localBranchNames = projectIsRepository
       ? yield* gitWorkflow
           .listLocalBranchNames(projectCwd)
-          .pipe(asOperationFailed("Unable to list branches"))
+          .pipe(asOperationFailed(`Unable to list ${terms.refNounPlural}`))
       : [];
     if (localBranchNames.includes(input.branch)) {
       const existingRef = yield* gitWorkflow
@@ -215,10 +215,10 @@ const make = Effect.gen(function* () {
       const checkoutPath = existingRef?.worktreePath ?? null;
       return yield* failure(
         "invalid_request",
-        `Branch '${input.branch}' already exists${
+        `${terms.refNounTitle} '${input.branch}' already exists${
           checkoutPath === null ? "" : ` and is checked out at '${checkoutPath}'`
-        }. Choose a different branch name, or delete the existing branch${
-          checkoutPath === null ? "" : " and its worktree"
+        }. Choose a different ${terms.refNoun} name, or delete the existing ${terms.refNoun}${
+          checkoutPath === null ? "" : ` and its ${terms.workspaceNoun}`
         } first.`,
       );
     }
@@ -237,7 +237,7 @@ const make = Effect.gen(function* () {
       if (localStatus.refName === null) {
         return yield* failure(
           "invalid_request",
-          `Could not determine the current branch of the project workspace (detached HEAD?). Pass baseRef explicitly.`,
+          `Could not determine the current ${terms.refNoun} of the project workspace (${terms.noRefLabel.toLowerCase()}?). Pass baseRef explicitly.`,
         );
       }
       baseRef = localStatus.refName;
@@ -303,7 +303,7 @@ const make = Effect.gen(function* () {
                         };
                       }),
                     ),
-          ).pipe(asOperationFailed("Unable to create the worktree")),
+          ).pipe(asOperationFailed(`Unable to create the ${terms.workspaceNoun}`)),
         );
         const worktreePath = worktree.path;
 

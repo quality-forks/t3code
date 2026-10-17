@@ -1,5 +1,6 @@
+import { localizedVcsTerminology } from "@t3tools/client-runtime/state/vcs";
+import { resolveVcsUnsupportedReason } from "@t3tools/shared/vcs";
 import { msg, useGT, useMessages } from "gt-react-native";
-
 import * as Dialog from "../../components/ui/Dialog";
 import { useOpenPullRequest } from "../../native/useOpenPullRequest";
 import type { AppBarMenu } from "../../components/ui/AppBar.types";
@@ -139,22 +140,38 @@ function useThreadGitControlModel(props: ThreadGitMenuProps) {
   const threadId = props.threadId;
   const { gitStatus, gitOperationLabel, onPull, onRunAction } = props;
 
-  const currentBranchLabel = gitStatus?.refName ?? props.currentBranch ?? gt("Detached HEAD");
+  const vcsTerminology = localizedVcsTerminology(gitStatus, messages);
+  const unsupportedReason = resolveVcsUnsupportedReason(gitStatus);
+  const currentBranchLabel = gitStatus?.refName ?? props.currentBranch ?? vcsTerminology.noRefLabel;
   const busy = gitOperationLabel !== null;
-  const isRepo = gitStatus?.isRepo ?? true;
+  const isRepo = (gitStatus?.isRepo ?? true) && unsupportedReason === null;
   const hasPrimaryRemote = gitStatus?.hasPrimaryRemote ?? false;
   const isDefaultRef = gitStatus?.isDefaultRef ?? false;
 
   const quickAction = (() => {
     if (!isRepo) {
       return {
-        label: gt("Git unavailable"),
+        label:
+          vcsTerminology.kind === "git"
+            ? gt("Git unavailable")
+            : gt("{value0} unavailable", { value0: vcsTerminology.systemName }),
         disabled: true,
         kind: "show_hint" as const,
-        hint: gt("This workspace is not a git repository."),
+        hint:
+          unsupportedReason ??
+          (vcsTerminology.kind === "git"
+            ? gt("This workspace is not a git repository.")
+            : gt("This workspace is not a repository.")),
       };
     }
-    const action = resolveQuickAction(gitStatus, busy, isDefaultRef, hasPrimaryRemote, messages);
+    const action = resolveQuickAction(
+      gitStatus,
+      busy,
+      isDefaultRef,
+      hasPrimaryRemote,
+      "mobile",
+      messages,
+    );
     return !canWriteSourceControl && (action.kind === "run_pull" || action.kind === "run_action")
       ? {
           ...action,
@@ -189,10 +206,11 @@ function useThreadGitControlModel(props: ThreadGitMenuProps) {
         gt("{term, select, mr {No open MR} cr {No open change request} other {No open PR}}", {
           term,
         }),
-        gt(
-          "{term, select, mr {This branch does not have an open merge request.} cr {This branch does not have an open change request.} other {This branch does not have an open pull request.}}",
-          { term },
-        ),
+        gt("This {value0} does not have an open {value1}.", {
+          value0: vcsTerminology.refNoun,
+          value1: sourceControlClients.get(gitStatus?.sourceControlProvider?.kind).changeRequest
+            .singular,
+        }),
       );
       return;
     }
@@ -228,8 +246,14 @@ function useThreadGitControlModel(props: ThreadGitMenuProps) {
     ) {
       if (props.hasThread === false) {
         Dialog.alert(
-          gt("Choose a feature branch"),
-          gt("Switch branches before publishing changes from this draft."),
+          vcsTerminology.kind === "git"
+            ? gt("Choose a feature branch")
+            : gt("Choose a feature {value0}", { value0: vcsTerminology.refNoun }),
+          vcsTerminology.kind === "git"
+            ? gt("Switch branches before publishing changes from this draft.")
+            : gt("Switch {value0} before publishing changes from this draft.", {
+                value0: vcsTerminology.refNounPlural,
+              }),
         );
         return;
       }
@@ -357,8 +381,14 @@ export function useThreadGitMenuDefinition(props: ThreadGitMenuProps): AppBarMen
   const messages = useMessages();
   // A plain folder that tracks repositories has no branch of its own; its turns still have diffs.
   const repositoriesOnly = !model.isRepo && props.tracksRepositories === true;
+  const vcsTerminology = localizedVcsTerminology(props.gitStatus, messages);
   return {
-    title: gt("Git controls"),
+    title:
+      vcsTerminology.kind === "git"
+        ? gt("Git controls")
+        : gt("{value0} controls", {
+            value0: vcsTerminology.systemName,
+          }),
     icon: "point.topleft.down.curvedto.point.bottomright.up",
     separateBackground: false,
     items: [
@@ -406,7 +436,11 @@ export function useThreadGitMenuDefinition(props: ThreadGitMenuProps): AppBarMen
             ? gt("Available after the first message")
             : repositoriesOnly
               ? gt("Turn diffs")
-              : gt("Turn diffs and worktree changes"),
+              : vcsTerminology.kind === "git"
+                ? gt("Turn diffs and worktree changes")
+                : gt("Turn diffs and {value0} changes", {
+                    value0: vcsTerminology.workspaceNoun,
+                  }),
         onPress: model.openReview,
       },
       ...(props.onMergeBack
@@ -432,7 +466,12 @@ export function useThreadGitMenuDefinition(props: ThreadGitMenuProps): AppBarMen
               ? gt("Repositories")
               : props.tracksRepositories === true
                 ? gt("Commit, branches, repositories")
-                : gt("Commit, files, branches"),
+                : vcsTerminology.kind === "git"
+                  ? gt("Commit, files, branches")
+                  : gt("{value0}, files, {value1}", {
+                      value0: vcsTerminology.changeNounTitle,
+                      value1: vcsTerminology.refNounPlural,
+                    }),
         onPress: model.openGitInspector,
       },
     ],
