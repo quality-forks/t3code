@@ -299,6 +299,7 @@ const makeHarness = (options: HarnessOptions = {}) => {
               }),
         }),
         Layer.mock(GitWorkflowService.GitWorkflowService)({
+          repositoryKind: () => Effect.succeed("git" as const),
           listRefs,
           listLocalBranchNames,
           localStatus,
@@ -702,6 +703,7 @@ describe("t3_worktree_status", () => {
         branch: "feature/existing",
         defaultStartFromOrigin: true,
       });
+      expect(harness.localStatus).not.toHaveBeenCalled();
     });
   });
 });

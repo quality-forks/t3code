@@ -127,7 +127,7 @@ const alternateInstanceId = ProviderInstanceId.make("codex_alternate");
 
 const layerVcsDriverRegistryTest = VcsDriverRegistry.layer.pipe(
   Layer.provide(VcsProcess.layer),
-  Layer.provide(layerServerConfig),
+  Layer.provideMerge(layerServerConfig),
   Layer.provide(layerPlatformTest),
 );
 
@@ -363,7 +363,8 @@ const layerTest = Layer.mergeAll(
   Layer.provide(McpProviderSessions.layer),
   Layer.provide(SqlitePersistence.layerMemory),
   Layer.provide(layerCheckpointStoreTest),
-  Layer.provide(layerServerConfig),
+  Layer.provide(layerVcsDriverRegistryTest),
+  Layer.provideMerge(layerServerConfig),
   Layer.provide(ServerSettings.layerTest()),
   Layer.provide(layerTestProviderInstanceRegistry),
   Layer.provide(layerGitWorkflowTest),
@@ -376,7 +377,8 @@ const layerLegacyImportTest = Layer.merge(RuntimeLayer.layer, layerProjectionRep
   Layer.provide(McpProviderSessions.layer),
   Layer.provideMerge(SqlitePersistence.layerMemory),
   Layer.provide(layerCheckpointStoreTest),
-  Layer.provide(layerServerConfig),
+  Layer.provide(layerVcsDriverRegistryTest),
+  Layer.provideMerge(layerServerConfig),
   Layer.provide(ServerSettings.layerTest()),
   Layer.provide(layerTestProviderInstanceRegistry),
   Layer.provide(layerGitWorkflowTest),
@@ -504,6 +506,7 @@ const layerProjectDeletionTest = Layer.mergeAll(
   Layer.provide(SqlitePersistence.layerMemory),
   Layer.provide(layerCheckpointStoreTest),
   // Exposed so tests can reach the attachments directory that resource cleanup removes from.
+  Layer.provideMerge(layerVcsDriverRegistryTest),
   Layer.provideMerge(layerServerConfig),
   Layer.provide(ServerSettings.layerTest()),
   Layer.provide(layerTestProviderInstanceRegistry),
@@ -1384,7 +1387,8 @@ const layerSharedApplicationDataPlaneTest = Layer.mergeAll(
   Layer.provide(McpProviderSessions.layer),
   Layer.provideMerge(SqlitePersistence.layerMemory),
   Layer.provide(layerCheckpointStoreTest),
-  Layer.provide(layerServerConfig),
+  Layer.provide(layerVcsDriverRegistryTest),
+  Layer.provideMerge(layerServerConfig),
   Layer.provide(ServerSettings.layerTest()),
   Layer.provide(layerTestProviderInstanceRegistry),
   Layer.provide(layerGitWorkflowTest),
@@ -14175,7 +14179,8 @@ const layerQueueResumeDisabledInstanceTest = Layer.mergeAll(
   Layer.provide(McpProviderSessions.layer),
   Layer.provide(SqlitePersistence.layerMemory),
   Layer.provide(layerCheckpointStoreTest),
-  Layer.provide(layerServerConfig),
+  Layer.provide(layerVcsDriverRegistryTest),
+  Layer.provideMerge(layerServerConfig),
   Layer.provide(
     ServerSettings.layerTest({
       providerInstances: {

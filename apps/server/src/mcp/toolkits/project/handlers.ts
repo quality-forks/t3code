@@ -1,3 +1,4 @@
+import * as GitVcsDriver from "../../../vcs/GitVcsDriver.ts";
 import {
   CommandId,
   MessageId,
@@ -26,7 +27,7 @@ import * as ProjectCloneTracker from "../../../project/ProjectCloneTracker.ts";
 import { mutateProjectWithClone } from "../../../project/ProjectMutation.ts";
 import * as ManagedProjectFolders from "../../../project/ManagedProjectFolders.ts";
 import * as Repositories from "../../../sourceControl/SourceControlRepositoryService.ts";
-import * as GitVcsDriver from "../../../vcs/GitVcsDriver.ts";
+import * as GitWorkflowService from "../../../git/GitWorkflowService.ts";
 import * as ServerSettings from "../../../serverSettings.ts";
 import * as ProviderRegistry from "../../../provider/ProviderRegistry.ts";
 import * as DateTime from "effect/DateTime";
@@ -92,12 +93,12 @@ const assertProjectWorktree = Effect.fn("mcp.assertProjectWorktree")(function* (
   workspaceRoot: string,
   worktreePath: string,
 ) {
-  const git = yield* GitVcsDriver.GitVcsDriver;
+  const workflow = yield* GitWorkflowService.GitWorkflowService;
   const fileSystem = yield* FileSystem.FileSystem;
   const real = (path: string) => fileSystem.realPath(path).pipe(Effect.orElseSucceed(() => path));
-  const worktrees = yield* git.listWorktreePaths(workspaceRoot).pipe(
-    Effect.flatMap((paths) => Effect.forEach(paths, real)),
+  const worktrees = yield* workflow.listWorkspacePaths(workspaceRoot).pipe(
     Effect.orElseSucceed((): ReadonlyArray<string> => []),
+    Effect.flatMap((paths) => Effect.forEach(paths, real)),
   );
   if (!worktrees.includes(yield* real(worktreePath)))
     return yield* new OrchestratorMcpFailure({
@@ -126,14 +127,34 @@ const projectFileThreadEnvMode = Effect.fn("mcp.projectFileThreadEnvMode")(funct
 const NON_REPOSITORY_FATAL =
   /^fatal: (?:not a git repository|gitfile does not point to a valid repository)/im;
 
-/** Branches from the checkout's current branch, as the composer does; a checkout with no commit or a detached HEAD stays shared. */
+/** Unnamed jj work uses its committed change; Git without a commit or branch stays shared. */
 const defaultWorktreeStrategy = Effect.fn("mcp.defaultWorktreeStrategy")(function* (
   workspaceRoot: string,
+  startFromOrigin: boolean,
 ): Effect.fn.Return<
   OrchestrationV2ThreadLaunchWorkspaceStrategy | undefined,
   OrchestratorMcpFailure,
-  GitVcsDriver.GitVcsDriver
+  GitWorkflowService.GitWorkflowService | GitVcsDriver.GitVcsDriver
 > {
+  const workflow = yield* GitWorkflowService.GitWorkflowService;
+  const kind = yield* workflow.repositoryKind(workspaceRoot).pipe(Effect.mapError(unavailable));
+  if (kind === "jj") {
+    const base = yield* workflow.committedBase(workspaceRoot).pipe(Effect.mapError(unavailable));
+    if (base === null) return undefined;
+    const status = yield* workflow
+      .localStatus({ cwd: workspaceRoot })
+      .pipe(Effect.mapError(unavailable));
+    if (status.committedBase && (!startFromOrigin || status.refName === null)) {
+      return {
+        type: "worktree" as const,
+        baseRef: status.committedBase.changeId,
+        startFromOrigin: false,
+      };
+    }
+    return status.refName === null
+      ? undefined
+      : { type: "worktree" as const, baseRef: status.refName };
+  }
   const git = yield* GitVcsDriver.GitVcsDriver;
   const unreadable = new OrchestratorMcpFailure({
     code: "orchestration_error",
@@ -363,7 +384,10 @@ export const layer = McpToolAccess.toLayer(ProjectToolkit, {
           projectSettings !== undefined &&
           (projectSettings.defaultThreadEnvMode ??
             (yield* projectFileThreadEnvMode(project.workspaceRoot))) === "worktree"
-            ? yield* defaultWorktreeStrategy(project.workspaceRoot)
+            ? yield* defaultWorktreeStrategy(
+                project.workspaceRoot,
+                projectSettings.newWorktreesStartFromOrigin,
+              )
             : input.workspaceStrategy;
         // An omitted startFromOrigin follows the new-worktree setting, as the composer and
         // t3_worktree_handoff do. Otherwise a stale local branch silently becomes the base.

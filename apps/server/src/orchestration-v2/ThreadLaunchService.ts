@@ -4,6 +4,7 @@ import * as TerminalManager from "../terminal/Manager.ts";
 import { resolveProjectSettings } from "@t3tools/shared/projectSettings";
 import {
   CommandId,
+  GitCommandError,
   type ChatAttachment,
   type MessageId,
   type ModelSelection,
@@ -19,7 +20,6 @@ import {
   type RunId,
   type RuntimeMode,
   type ScheduledTaskId,
-  type GitCommandError,
   type GitManagerServiceError,
   TaskFolderError,
   TextGenerationError,
@@ -50,6 +50,7 @@ import {
 import * as CheckpointStore from "../checkpointing/CheckpointStore.ts";
 import * as GitWorkflow from "../git/GitWorkflowService.ts";
 import type * as GitVcsDriver from "../vcs/GitVcsDriver.ts";
+import { isJjChangeId } from "../vcs/JjRevset.ts";
 import { parseGitCloneProgressLine } from "../project/gitCloneProgress.ts";
 import * as ProjectService from "../project/ProjectService.ts";
 import * as ProjectSetupScriptRunner from "../project/ProjectSetupScriptRunner.ts";
@@ -173,6 +174,8 @@ export class ThreadLaunchError extends Schema.TaggedError<ThreadLaunchError>()(
   }
 }
 
+const isGitCommandError = Schema.is(GitCommandError);
+
 export class ThreadLaunchBaseRefError extends Schema.TaggedError<ThreadLaunchBaseRefError>()(
   "ThreadLaunchBaseRefError",
   {
@@ -184,6 +187,8 @@ export class ThreadLaunchBaseRefError extends Schema.TaggedError<ThreadLaunchBas
   },
 ) {
   override get message(): string {
+    if (isJjChangeId(this.baseRef) && isGitCommandError(this.cause) && this.cause.command === "jj")
+      return this.cause.detail;
     return `Base ref "${this.baseRef}" does not resolve to a commit in project "${this.projectTitle}" (${this.workspaceRoot}).`;
   }
 }
@@ -418,9 +423,21 @@ const make = Effect.gen(function* () {
         baseRef.startsWith(":")
           ? Effect.succeed(true)
           : // `git worktree add` reads `-` as the previous checkout.
-            git
-              .hasCommit({ cwd, refName: baseRef === "-" ? "@{-1}" : baseRef })
-              .pipe(Effect.orElseSucceed(() => true)),
+            git.hasCommit({ cwd, refName: baseRef === "-" ? "@{-1}" : baseRef }).pipe(
+              Effect.catch((cause) =>
+                isJjChangeId(baseRef) && cause.command === "jj"
+                  ? Effect.fail(
+                      new ThreadLaunchBaseRefError({
+                        projectId: project.id,
+                        projectTitle: project.title,
+                        workspaceRoot: cwd,
+                        baseRef,
+                        cause,
+                      }),
+                    )
+                  : Effect.succeed(true),
+              ),
+            ),
         branch !== undefined
           ? git
               .listLocalBranchNames(cwd)
@@ -655,6 +672,18 @@ const make = Effect.gen(function* () {
       } else {
         branch = yield* launchBranch(input.workspaceStrategy, project.workspaceRoot);
       }
+      const preGeneratedName =
+        reused === undefined &&
+        generatedTemporaryBranch &&
+        initialMessage !== undefined &&
+        (yield* git
+          .repositoryKind(project.workspaceRoot)
+          .pipe(Effect.orElseSucceed(() => null))) === "jj"
+          ? yield* generateBranchNameFor(project.workspaceRoot, initialMessage).pipe(
+              Effect.orElseSucceed(() => null),
+            )
+          : null;
+      if (preGeneratedName !== null) branch = preGeneratedName.branch;
       let worktreePath =
         input.workspaceStrategy.type === "existing_worktree"
           ? input.workspaceStrategy.worktreePath
@@ -738,6 +767,7 @@ const make = Effect.gen(function* () {
           }
         }
         if (
+          preGeneratedName === null &&
           branch !== null &&
           projectIsRepository &&
           (generatedTemporaryBranch || isTemporaryWorktreeBranch(branch))
@@ -811,7 +841,18 @@ const make = Effect.gen(function* () {
                     baseRefName,
                     path: null,
                   },
-                  { progress },
+                  {
+                    progress,
+                    ...(preGeneratedName === null
+                      ? {}
+                      : {
+                          generatedName: { exactName: preGeneratedName.exactName },
+                          onRefNameResolved: (name: string) =>
+                            Effect.sync(() => {
+                              branch = name;
+                            }),
+                        }),
+                  },
                 )
                 .pipe(
                   Effect.catchIf(
@@ -855,6 +896,21 @@ const make = Effect.gen(function* () {
                   })),
                   Effect.mapError(mapError(input, "provision-worktree", threadId)),
                 );
+        if (
+          !(yield* git
+            .validateWorkspace(project.workspaceRoot, worktree.path)
+            .pipe(Effect.mapError(mapError(input, "provision-worktree", threadId))))
+        ) {
+          // An unverified path must not be removed as a failed workspace.
+          createdWorktreePath = null;
+          return yield* mapError(
+            input,
+            "provision-worktree",
+            threadId,
+          )(
+            "Jujutsu isolation requires a separate native workspace; no workspace was provisioned.",
+          );
+        }
         worktreePath = worktree.path;
         branch = worktree.refName;
         createdWorktreePath = worktreePath;
@@ -888,6 +944,7 @@ const make = Effect.gen(function* () {
 
       if (
         reused === undefined &&
+        preGeneratedName === null &&
         worktreePath !== null &&
         branch !== null &&
         initialMessage !== undefined &&
@@ -1366,6 +1423,20 @@ const make = Effect.gen(function* () {
         commandId: input.commandId,
         instanceId: input.modelSelection.instanceId,
       });
+      // Accepted launches replay without rechecking repository support.
+      if (
+        Option.isNone(launchReceipt) ||
+        launchReceipt.value.status !== "accepted" ||
+        launchReceipt.value.commandType !== "thread.create"
+      ) {
+        yield* git
+          .providerCwd(
+            input.workspaceStrategy.type === "existing_worktree"
+              ? input.workspaceStrategy.worktreePath
+              : project.workspaceRoot,
+          )
+          .pipe(Effect.mapError(mapError(input, "resolve-project")));
+      }
       return yield* Effect.gen(function* () {
         // Recover ids from accepted launch receipts before allocating; retries have no client id and new ids collide with receipts.
         const reusableLaunchReceipt =

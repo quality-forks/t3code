@@ -367,12 +367,14 @@ function toRemoteStatusPart(status: VcsStatusResult): VcsStatusRemoteResult {
 function toLocalStatusPart(status: VcsStatusResult): VcsStatusLocalResult {
   return {
     isRepo: status.isRepo,
+    ...(status.vcs ? { vcs: status.vcs } : {}),
     ...(status.sourceControlProvider
       ? { sourceControlProvider: status.sourceControlProvider }
       : {}),
     hasPrimaryRemote: status.hasPrimaryRemote,
     isDefaultRef: status.isDefaultRef,
     refName: status.refName,
+    ...(status.committedBase ? { committedBase: status.committedBase } : {}),
     hasWorkingTreeChanges: status.hasWorkingTreeChanges,
     workingTree: status.workingTree,
     ...(status.branchChanges ? { branchChanges: status.branchChanges } : {}),

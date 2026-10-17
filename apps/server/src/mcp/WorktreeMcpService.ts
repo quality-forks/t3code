@@ -14,6 +14,7 @@ import {
   type VcsListRefsResult,
 } from "@t3tools/contracts";
 import { resolveProjectSettings } from "@t3tools/shared/projectSettings";
+
 import * as Cause from "effect/Cause";
 import * as Context from "effect/Context";
 import * as SecureRandom from "effect/crypto/SecureRandom";
@@ -163,7 +164,7 @@ const make = Effect.gen(function* () {
     const alreadyInWorktree = (worktreePath: string) =>
       failure(
         "already_in_worktree",
-        `Thread '${scope.thread.threadId}' is already attached to worktree '${worktreePath}'.`,
+        `Thread '${scope.thread.threadId}' is already attached to checkout '${worktreePath}'.`,
       );
 
     const projection = yield* loadThread(scope);
@@ -173,7 +174,7 @@ const make = Effect.gen(function* () {
     if (projection.thread.archivedAt !== null) {
       return yield* failure(
         "invalid_request",
-        `Thread '${scope.thread.threadId}' is archived and cannot be handed off to a worktree.`,
+        `Thread '${scope.thread.threadId}' is archived and cannot be handed off to an isolated checkout.`,
       );
     }
 
@@ -188,7 +189,8 @@ const make = Effect.gen(function* () {
     const projectIsRepository = taskPlan === null || taskPlan.projectIsRepository;
     const localStatus = yield* gitWorkflow
       .localStatus({ cwd: projectCwd })
-      .pipe(asOperationFailed("Unable to read git status"));
+      .pipe(asOperationFailed("Unable to read repository status"));
+
     if (projectIsRepository && !localStatus.isRepo) {
       return yield* failure(
         "invalid_request",
@@ -221,7 +223,13 @@ const make = Effect.gen(function* () {
       );
     }
 
-    let baseRef = input.baseRef;
+    const startFromOrigin =
+      input.startFromOrigin ?? (yield* readDefaultStartFromOrigin(project.id));
+    let baseRef =
+      input.baseRef ??
+      (!startFromOrigin && localStatus.vcs?.kind === "jj"
+        ? localStatus.committedBase?.changeId
+        : undefined);
     if (baseRef === undefined && !projectIsRepository) {
       // Each repository starts from its own default branch.
       baseRef = "HEAD";
@@ -229,14 +237,11 @@ const make = Effect.gen(function* () {
       if (localStatus.refName === null) {
         return yield* failure(
           "invalid_request",
-          "Could not determine the current branch of the project workspace (detached HEAD?). Pass baseRef explicitly.",
+          `Could not determine the current branch of the project workspace (detached HEAD?). Pass baseRef explicitly.`,
         );
       }
       baseRef = localStatus.refName;
     }
-
-    const startFromOrigin =
-      input.startFromOrigin ?? (yield* readDefaultStartFromOrigin(project.id));
 
     let worktreeBaseRef = baseRef;
     let baseRefName = baseRef;
@@ -345,7 +350,7 @@ const make = Effect.gen(function* () {
           if (recheck.thread.archivedAt !== null) {
             return yield* failure(
               "invalid_request",
-              `Thread '${scope.thread.threadId}' was archived while the worktree was being created; the handoff was rolled back.`,
+              `Thread '${scope.thread.threadId}' was archived while the checkout was being created; the handoff was rolled back.`,
             );
           }
           return yield* threadManagement
@@ -373,7 +378,7 @@ const make = Effect.gen(function* () {
                   : Effect.fail(
                       failure(
                         "operation_failed",
-                        `Unable to re-point the thread at the worktree: ${errorMessage(Cause.squash(cause))}`,
+                        `Unable to re-point the thread at the checkout: ${errorMessage(Cause.squash(cause))}`,
                       ),
                     ),
               ),
@@ -441,8 +446,8 @@ const make = Effect.gen(function* () {
           continuation,
           note:
             continuation.status === "scheduled"
-              ? "Handoff recorded. Changing the workspace detaches this provider session, so the current turn ends shortly after this call; the queued continuation prompt then starts the next turn inside the worktree with the conversation preserved. The worktree is not removed automatically when the thread is deleted."
-              : "Handoff recorded. Changing the workspace detaches this provider session, so the current turn ends shortly after this call; the conversation continues inside the worktree when the thread receives its next message. Pass continuationPrompt to resume automatically. The worktree is not removed automatically when the thread is deleted.",
+              ? "Handoff recorded. Changing the workspace detaches this provider session, so the current turn ends shortly after this call; the queued continuation prompt then starts the next turn inside the checkout with the conversation preserved. The checkout is not removed automatically when the thread is deleted."
+              : "Handoff recorded. Changing the workspace detaches this provider session, so the current turn ends shortly after this call; the conversation continues inside the checkout when the thread receives its next message. Pass continuationPrompt to resume automatically. The checkout is not removed automatically when the thread is deleted.",
         };
         return result;
       }),
@@ -460,7 +465,7 @@ const make = Effect.gen(function* () {
             return Effect.fail(
               failure(
                 "handoff_in_progress",
-                `A worktree handoff is already in progress for thread '${scope.thread.threadId}'.`,
+                `A checkout handoff is already in progress for thread '${scope.thread.threadId}'.`,
               ),
             );
           }
@@ -483,6 +488,16 @@ const make = Effect.gen(function* () {
       const project = yield* loadProject(scope, projection.thread.projectId);
 
       const defaultStartFromOrigin = yield* readDefaultStartFromOrigin(project.id);
+      const cwd = projection.thread.worktreePath ?? project.workspaceRoot;
+      const kind = yield* gitWorkflow
+        .repositoryKind(cwd)
+        .pipe(asOperationFailed("Unable to read repository kind"));
+      const localStatus =
+        kind === "jj"
+          ? yield* gitWorkflow
+              .localStatus({ cwd })
+              .pipe(asOperationFailed("Unable to read repository status"))
+          : undefined;
 
       const result: WorktreeMcpStatusResult = {
         attached: projection.thread.worktreePath !== null,
@@ -490,6 +505,8 @@ const make = Effect.gen(function* () {
         branch: projection.thread.branch,
         projectWorkspaceRoot: project.workspaceRoot,
         defaultStartFromOrigin,
+        vcsKind: kind ?? "unknown",
+        ...(localStatus?.committedBase ? { committedBase: localStatus.committedBase } : {}),
       };
       return result;
     },

@@ -770,7 +770,9 @@ export const OrchestrationV2ThreadLaunchWorkspaceStrategy = Schema.Union([
   }),
   Schema.Struct({
     type: Schema.Literal("worktree"),
-    baseRef: TrimmedNonEmptyString,
+    baseRef: TrimmedNonEmptyString.annotate({
+      description: "Branch or bookmark; Jujutsu also accepts a change id or commit id.",
+    }),
     branch: Schema.optional(TrimmedNonEmptyString),
     startFromOrigin: Schema.optional(Schema.Boolean),
     repositories: Schema.optional(

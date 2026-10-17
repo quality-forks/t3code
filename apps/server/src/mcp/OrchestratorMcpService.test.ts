@@ -64,6 +64,7 @@ import {
 } from "../orchestration-v2/Orchestrator.ts";
 import * as ProviderAdapterRegistry from "../orchestration-v2/ProviderAdapterRegistry.ts";
 import * as ThreadLaunchService from "../orchestration-v2/ThreadLaunchService.ts";
+import * as GitWorkflowService from "../git/GitWorkflowService.ts";
 import * as GitVcsDriver from "../vcs/GitVcsDriver.ts";
 import * as ThreadManagementService from "../orchestration-v2/ThreadManagementService.ts";
 import * as ProviderRegistry from "../provider/ProviderRegistry.ts";
@@ -84,7 +85,16 @@ const decodeTarget = Schema.decodeUnknownEffect(OrchestratorMcpTarget);
 
 const layerOrchestratorService = OrchestratorMcpService.layer.pipe(
   Layer.provide(Layer.mock(ThreadLaunchService.ThreadLaunchService)({})),
-  Layer.provide(Layer.mock(GitVcsDriver.GitVcsDriver)({})),
+  Layer.provide(
+    Layer.mergeAll(
+      Layer.mergeAll(
+        Layer.mock(GitVcsDriver.GitVcsDriver)({}),
+        Layer.mock(GitWorkflowService.GitWorkflowService)({}),
+      ),
+      Layer.mock(GitWorkflowService.GitWorkflowService)({}),
+    ),
+  ),
+  Layer.provide(Layer.mock(GitWorkflowService.GitWorkflowService)({})),
 );
 
 describe("OrchestratorMcpService", () => {
@@ -3154,6 +3164,7 @@ describe("OrchestratorMcpService provider resolution", () => {
             }),
           ),
           Layer.provide(Layer.mock(GitVcsDriver.GitVcsDriver)({})),
+          Layer.provide(Layer.mock(GitWorkflowService.GitWorkflowService)({})),
         );
 
         yield* Effect.gen(function* () {
@@ -3954,10 +3965,10 @@ describe("OrchestratorMcpService provider resolution", () => {
       OrchestratorMcpService.layer.pipe(
         Layer.provide(Layer.mock(ThreadLaunchService.ThreadLaunchService)({})),
         Layer.provide(
-          Layer.mock(GitVcsDriver.GitVcsDriver)({
+          Layer.mock(GitWorkflowService.GitWorkflowService)({
             resolvePrimaryRemoteName: () => Effect.succeed("origin"),
             resolveDefaultBranchName: () => Effect.succeed("main"),
-            resolveCommit: () => Effect.succeed({ commitSha: "abc123" }),
+            hasCommit: () => Effect.succeed(true),
           }),
         ),
         Layer.provide(
@@ -4188,7 +4199,21 @@ describe("OrchestratorMcpService provider resolution", () => {
     ) =>
       OrchestratorMcpService.layer.pipe(
         Layer.provide(Layer.mock(ThreadLaunchService.ThreadLaunchService)({})),
-        Layer.provide(Layer.mock(GitVcsDriver.GitVcsDriver)(git)),
+        Layer.provide(
+          Layer.mergeAll(
+            Layer.mock(GitVcsDriver.GitVcsDriver)(git),
+            Layer.mock(GitWorkflowService.GitWorkflowService)({
+              resolvePrimaryRemoteName: (cwd) => git.resolvePrimaryRemoteName!(cwd),
+              resolveDefaultBranchName: (cwd, remoteName) =>
+                git.resolveDefaultBranchName!(cwd, remoteName),
+              hasCommit: ({ cwd, refName }) =>
+                git.resolveCommit!({ cwd, revision: refName }).pipe(
+                  Effect.as(true),
+                  Effect.orElseSucceed(() => false),
+                ),
+            }),
+          ),
+        ),
         Layer.provide(
           Layer.mergeAll(
             NodeServices.layer,

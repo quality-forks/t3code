@@ -27,14 +27,14 @@ const WorktreeToolFailure = Schema.Union([WorktreeMcpFailure, OrchestratorMcpFai
 
 const WorktreeHandoffTool = Tool.make("t3_worktree_handoff", {
   description:
-    "Move THIS thread into a new git worktree on a new branch. Runs the setup script by default. A separate agent in a worktree: `t3_thread_launch` with `workspaceStrategy`. Call last in your turn. The move ends the live session. `continuationPrompt` resumes work there next turn. Without it, the thread waits. The worktree stays after the thread is deleted. Fails if this thread has a worktree.",
+    "Move THIS thread into a new Git worktree or Jujutsu workspace on a new branch or bookmark. Runs the setup script by default. A separate agent in a worktree: `t3_thread_launch` with `workspaceStrategy`. Call last in your turn. The move ends the live session. `continuationPrompt` resumes work there next turn. Without it, the thread waits. The worktree stays after the thread is deleted. Fails if this thread has a worktree.",
   parameters: WorktreeMcpHandoffInput,
   success: WorktreeMcpHandoffResult,
   failure: WorktreeToolFailure,
   failureMode: "return",
   dependencies,
 })
-  .annotate(Tool.Title, "Hand off thread to a git worktree")
+  .annotate(Tool.Title, "Hand off thread to an isolated checkout")
   .annotate(Tool.Readonly, false)
   .annotate(Tool.Destructive, true)
   .annotate(Tool.Idempotent, false)
@@ -43,7 +43,7 @@ const WorktreeHandoffTool = Tool.make("t3_worktree_handoff", {
 
 const WorktreeStatusTool = Tool.make("t3_worktree_status", {
   description:
-    "Report this thread's worktree: attached or not, path, branch, project root, and the `startFromOrigin` default. Check before `t3_worktree_handoff`.",
+    "Report this thread's Git worktree or Jujutsu workspace: attachment, path, branch or bookmark, project root, VCS kind, `startFromOrigin` default, and Jujutsu `committedBase` (pass its changeId as baseRef for local dependent work). Check before `t3_worktree_handoff`.",
   // No `parameters`: Tool.make defaults to Tool.EmptyParams, which serializes
   // to a top-level `type: "object"` JSON Schema. An explicit empty
   // Schema.Struct({}) serializes to `anyOf: [object, array]`, which is not a
@@ -53,7 +53,7 @@ const WorktreeStatusTool = Tool.make("t3_worktree_status", {
   failureMode: "return",
   dependencies,
 })
-  .annotate(Tool.Title, "Get thread worktree status")
+  .annotate(Tool.Title, "Get thread checkout status")
   .annotate(Tool.Readonly, true)
   .annotate(Tool.Destructive, false)
   .annotate(Tool.Idempotent, true)
@@ -62,7 +62,7 @@ const WorktreeStatusTool = Tool.make("t3_worktree_status", {
 
 const WorktreeListTool = Tool.make("t3_worktree_list", {
   description:
-    "List branch refs and checkout paths for a thread's workspace. Omit `threadId` for this thread. Detached worktrees with no branch are left out.",
+    "List branch or bookmark refs and checkout paths for a thread's workspace. Omit `threadId` for this thread. Checkouts with no branch or bookmark are left out.",
   parameters: Schema.Struct({
     environmentId: OrchestratorMcpEnvironmentTarget,
     threadId: Schema.optional(ThreadId),

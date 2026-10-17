@@ -2,6 +2,7 @@ import * as Digest from "effect/crypto/Digest";
 import * as Hex from "effect/encoding/Hex";
 import * as DateTime from "effect/DateTime";
 import * as Effect from "effect/Effect";
+import * as Clock from "effect/Clock";
 
 import { unquoteGitPatchPath } from "@t3tools/shared/gitPatchPath";
 import {
@@ -91,6 +92,15 @@ function fullContextContents(patch: string): { oldContents: string; newContents:
 }
 
 export const makeJjReviewDiff = (deps: JjReviewDiffDeps): JjReviewDiffOps => {
+  const branchTotalsDiffFailures = new Map<
+    string,
+    {
+      readonly key: string;
+      readonly count: number;
+      readonly retryAt: number;
+      readonly error: VcsError;
+    }
+  >();
   const hashDiff = (diff: string, files: ReadonlyArray<ReviewDiffFileStat>) =>
     deps.digest
       .digest(Digest.sha256, new TextEncoder().encode(JSON.stringify([diff, files])))
@@ -268,7 +278,8 @@ export const makeJjReviewDiff = (deps: JjReviewDiffDeps): JjReviewDiffOps => {
         splitRemoteRefName(normalized, remotes) === null
       ) {
         const tracked = (yield* deps.listBookmarks(cwd)).filter(
-          (bookmark) => bookmark.name === normalized && bookmark.remote !== null && bookmark.tracked,
+          (bookmark) =>
+            bookmark.name === normalized && bookmark.remote !== null && bookmark.tracked,
         );
         for (const bookmark of tracked) {
           const change = yield* deps.changeAt(
@@ -347,6 +358,11 @@ export const makeJjReviewDiff = (deps: JjReviewDiffDeps): JjReviewDiffOps => {
       };
     }
     // Polling reuses the already snapshotted tree and reads only metadata, never rendered patches.
+    const diffKey = `${input.change.commitId}\0${baseChange.commitId}`;
+    const diffFailure = branchTotalsDiffFailures.get(input.cwd);
+    if (diffFailure?.key === diffKey && (yield* Clock.currentTimeMillis) < diffFailure.retryAt) {
+      return yield* diffFailure.error;
+    }
     const stats = yield* colocatedGitCommand(
       deps.process,
       operation,
@@ -356,7 +372,7 @@ export const makeJjReviewDiff = (deps: JjReviewDiffDeps): JjReviewDiffOps => {
         "--no-color",
         "--no-ext-diff",
         "--no-textconv",
-          "--find-renames",
+        "--find-renames",
         "--numstat",
         "-z",
         `${baseChange.commitId}...${input.change.commitId}`,
@@ -364,6 +380,23 @@ export const makeJjReviewDiff = (deps: JjReviewDiffDeps): JjReviewDiffOps => {
       ],
       { maxOutputBytes: REVIEW_METADATA_MAX_OUTPUT_BYTES, outputMode: "error" },
     ).pipe(
+      Effect.tapError((error) =>
+        Effect.gen(function* () {
+          const count = diffFailure?.key === diffKey ? diffFailure.count + 1 : 1;
+          branchTotalsDiffFailures.delete(input.cwd);
+          branchTotalsDiffFailures.set(input.cwd, {
+            key: diffKey,
+            count,
+            error,
+            retryAt:
+              (yield* Clock.currentTimeMillis) + Math.min(60_000 * 2 ** (count - 1), 30 * 60_000),
+          });
+          if (branchTotalsDiffFailures.size > 2_048) {
+            const oldestKey = branchTotalsDiffFailures.keys().next().value;
+            if (oldestKey !== undefined) branchTotalsDiffFailures.delete(oldestKey);
+          }
+        }),
+      ),
       Effect.catchIf(
         (error) => error._tag === "VcsProcessExitError" && error.exitCode === 128,
         (error) => {
@@ -386,6 +419,7 @@ export const makeJjReviewDiff = (deps: JjReviewDiffDeps): JjReviewDiffOps => {
         },
       ),
     );
+    branchTotalsDiffFailures.delete(input.cwd);
     if (stats === undefined) return undefined;
     const files = parseReviewNumstat(stats.stdout);
     return {

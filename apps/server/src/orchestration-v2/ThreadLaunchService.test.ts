@@ -136,6 +136,7 @@ const claudeAdapter = {
 } as ProviderAdapter.ProviderAdapterV2["Service"];
 
 interface HarnessOptions {
+  readonly repositoryKind?: "git" | "jj";
   readonly closeTerminal?: TerminalManager.TerminalManager["Service"]["close"];
   readonly adapters?: ReadonlyArray<ProviderAdapter.ProviderAdapterV2["Service"]>;
   readonly managedFolders?: Layer.Layer<ManagedProjectFolders.ManagedProjectFolders>;
@@ -232,7 +233,10 @@ function makeHarness(options: HarnessOptions = {}) {
       listShells: () => Effect.die("unused"),
     }),
     Layer.mock(GitWorkflow.GitWorkflowService)({
+      repositoryKind: () => Effect.succeed(options.repositoryKind ?? "git"),
       repositoryRoot: () => Effect.succeed(project.workspaceRoot),
+      providerCwd: (cwd) => Effect.succeed(cwd),
+      validateWorkspace: () => Effect.succeed(true),
       createWorktree,
       renameBranch,
       fetchWorktreeBaseCommit:
@@ -1197,6 +1201,7 @@ it.effect.each([
   Effect.gen(function* () {
     const namingAttempted = yield* Deferred.make<void>();
     const harness = makeHarness({
+      repositoryKind: "jj",
       serverSettings: {
         branchNamePrefix: "global-prefix",
         projectSettingsOverrides: {
@@ -1263,14 +1268,14 @@ it.effect(
   },
 );
 
-it.effect("renames a temporary branch with a configured prefix when generation succeeds", () => {
+it.effect("creates a jj workspace with the generated configured prefix before checkout", () => {
   const harness = makeHarness({
+    repositoryKind: "jj",
     serverSettings: { branchNamingMode: "static", branchNamePrefix: "my-prefix" },
     generateBranchName: () => Effect.succeed({ branch: "my-prefix/fix-parser" }),
   });
   return Effect.gen(function* () {
     const launches = yield* ThreadLaunch.ThreadLaunchService;
-    const threads = yield* ThreadManagement.ThreadManagementService;
     const launched = yield* launches.launch(
       launchInput({
         command: "prefix-rename",
@@ -1279,16 +1284,10 @@ it.effect("renames a temporary branch with a configured prefix when generation s
         workspace: { type: "worktree", baseRef: "main" },
       }),
     );
-    yield* threads.streamStoredEventsFrom({ threadId: launched.threadId }).pipe(
-      Stream.filter((stored) => stored.commandId === "prefix-rename:branch-rename"),
-      Stream.runHead,
-    );
-    const projection = yield* threads.getThreadProjection(launched.threadId);
+    const projection = yield* preparationSettled(launched.threadId);
     assert.equal(projection.thread.branch, "my-prefix/fix-parser");
-    assert.match(
-      harness.renameBranch.mock.calls[0]?.[0]?.oldBranch ?? "",
-      /^my-prefix\/[0-9a-f]{8}$/,
-    );
+    assert.equal(harness.renameBranch.mock.calls.length, 0);
+    assert.equal(harness.createWorktree.mock.calls[0]?.[0]?.newRefName, "my-prefix/fix-parser");
   }).pipe(Effect.provide(harness.layer));
 });
 
@@ -3091,8 +3090,12 @@ it.effect(
     Effect.gen(function* () {
       const claimed = yield* Deferred.make<void>();
       const harness = makeHarness({
+        repositoryKind: "jj",
         createWorktree: (_input, options) =>
-          (options?.progress?.onWorktreeClaimed?.("/repo-worktrees/feature") ?? Effect.void).pipe(
+          (options?.onRefNameResolved?.("generated-branch-2") ?? Effect.void).pipe(
+            Effect.andThen(
+              options?.progress?.onWorktreeClaimed?.("/repo-worktrees/feature") ?? Effect.void,
+            ),
             Effect.andThen(Deferred.succeed(claimed, undefined)),
             Effect.andThen(Effect.never),
           ),
@@ -3111,10 +3114,7 @@ it.effect(
         yield* Deferred.await(claimed);
         assert.isTrue(yield* tracker.cancel(launched.threadId));
         assert.equal(harness.removeWorktree.mock.calls[0]?.[0].path, "/repo-worktrees/feature");
-        assert.equal(
-          harness.deleteLocalBranch.mock.calls[0]?.[0].refName,
-          harness.createWorktree.mock.calls[0]?.[0].newRefName,
-        );
+        assert.equal(harness.deleteLocalBranch.mock.calls[0]?.[0].refName, "generated-branch-2");
       }).pipe(Effect.provide(harness.layer));
     }),
 );

@@ -1,3 +1,4 @@
+import * as GitWorkflowService from "../git/GitWorkflowService.ts";
 import { NodeHttpServer } from "@effect/platform-node";
 import * as NodeCrypto from "@effect/platform-node/NodeCrypto";
 import * as NodeServices from "@effect/platform-node/NodeServices";
@@ -177,7 +178,12 @@ const makeLaptopWith = (
       Layer.provide(Layer.mock(ProjectService.ProjectService)({})),
       Layer.provide(Layer.mock(SecretRequests.SecretRequests)({})),
       Layer.provide(Layer.mock(ThreadLaunch.ThreadLaunchService)({})),
-      Layer.provide(Layer.mock(GitVcsDriver.GitVcsDriver)({})),
+      Layer.provide(
+        Layer.mergeAll(
+          Layer.mock(GitVcsDriver.GitVcsDriver)({}),
+          Layer.mock(GitWorkflowService.GitWorkflowService)({}),
+        ),
+      ),
       Layer.provide(
         ServerConfig.layerTest(process.cwd(), { prefix: "t3-peer-link-requests-" }).pipe(
           Layer.provide(NodeServices.layer),

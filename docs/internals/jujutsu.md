@@ -60,3 +60,44 @@ jj's synthetic root has an all-zeros id, not a usable Git object. [`JjVcsDriver.
 Remote-qualified review bases such as `origin/main`, including `branch.<name>.gh-merge-base`,
 try the remote bookmark first, then the same-spelled local bookmark only if the remote is absent.
 `refs/remotes/origin/main` stays remote-only; `refs/heads/origin/main` explicitly selects local.
+
+## jj owns the working copy, Git owns the object store
+
+In a colocated repo every jj commit, `@` included, is a real Git object in
+`<mainWorkspaceRoot>/.git` pinned by `refs/jj/keep/<sha>`. So the split is fixed:
+
+- Snapshot and restore are jj only. Git's `HEAD` is not the working-copy change `@`; `git restore` or `git clean` bypasses jj's working-copy state even in a colocated secondary workspace.
+- Checkpoint diffs use Git plumbing between captured trees, including captured merges. Review diffs use Git plumbing for single-parent changes and `jj diff --git` for merged-parent baselines, retaining rename pairs in numstat metadata.
+- Hosting operations and per-thread merge-base config use the main workspace root and its `.git/config`. Local bookmarks are exported as Git branch refs in the colocated store. Background status fetches use Git with noninteractive authentication and write only `refs/t3/remotes/<encoded-remote>/*`, a namespace jj does not import. Fetch disables Git's configured remote-tracking ref mappings as well. Ahead counts use jj's nonempty changes above the Git merge bases; behind counts read the fetched Git objects. A background remote update therefore cannot move a tracked local bookmark or detach the workspace from it.
+
+At the driver level, a jj repo with no reachable `.git` is reported unusable.
+[`JjRepo.resolveJjRepoPaths`](../../apps/server/src/vcs/JjRepo.ts)
+follows a secondary workspace's `.jj/repo` pointer back to the main root so every Git call still has
+a `--git-dir`.
+
+Private behind counts are bounded by time, output size and commit count. Timeouts and output limits retain jj's known remote-bookmark count. Reaching the commit cap reports a lower bound of 1000 rather than a potentially stale zero, so Pull remains available. Remote discovery failures still surface as errors.
+Upstream ahead counts start at `@` and exclude empty local changes; behind counts start at the
+selected local bookmark and include empty remote commits. Automatic pull never applies to jj.
+
+Status snapshot, segment, bookmark and workspace read failures propagate to the caller; they never
+become a clean working-copy result. Status reads remain live, and the broadcaster
+retains upstream's branch-race checks and local/remote refresh ordering. Optional branch totals alone are absent for unrelated histories:
+only after a failed triple-dot diff does a successful no-common-ancestor diagnostic establish this.
+Broken commands, missing objects, timeouts and other genuine failures still surface.
+The refs snapshot cache includes repository generation and operation-head identities, so external
+`jj` operations invalidate it immediately. Each bookmark mutation invalidates once. T3 workspace
+creation, removal and pruning also advance the repository generation, including when a later
+configuration step fails. Fresh workspaces leave `@`'s description empty so user-written descriptions
+can always be preserved and cleanup can dispose of empty, undescribed changes. Force removal deletes
+the workspace directory. Only snapshotted changes are retained in Jujutsu history; ignored files and
+files excluded by snapshot size limits may be lost.
+
+These are driver-level guarantees. Automatic repository selection is enabled separately through
+the registry; the native workflow is not yet selected by automatic detection.
+
+An explicitly remote-qualified workspace base uses that remote bookmark, even when
+a same-named local bookmark contains unpublished commits. Tracking does not replace the base.
+
+Bookmark policy checks literal names, without stripping `refs/`, `heads/`, `remotes/` or remote prefixes. Private `t3code/import/` bookmarks are hidden from listings and automatic default/nearest-bookmark selection. Switch and workspace requests refuse that literal prefix, but explicit revision selection (including review refs and other spellings) is not a protection boundary: the same commit is accessible by id. Ordinary remote selection refuses to create a reserved local bookmark; choose another local name instead. Existing local PR aliases remain selectable, and controlled PR import may create and track them. Remote-qualified workspace bases such as `origin/main` retain their existing remote resolution.
+
+Non-forced manual workspace removal checks snapshot diagnostics and independently inspects tracked and non-ignored untracked files against the snapshot using a temporary Git index in `JjDiskInspection.ts`. Submodule paths must be absent or empty directories, with no repository state; initialized, nonempty or uncertain paths block removal. Incomplete snapshots or inconclusive disk inspection keep the files and report the reason. Explicit force retains its destructive behavior.

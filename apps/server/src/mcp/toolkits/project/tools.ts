@@ -36,6 +36,7 @@ import * as ProjectCloneTracker from "../../../project/ProjectCloneTracker.ts";
 import * as ManagedProjectFolders from "../../../project/ManagedProjectFolders.ts";
 import * as ThreadManagementService from "../../../orchestration-v2/ThreadManagementService.ts";
 import * as SourceControlRepositoryService from "../../../sourceControl/SourceControlRepositoryService.ts";
+import * as GitWorkflowService from "../../../git/GitWorkflowService.ts";
 import * as GitVcsDriver from "../../../vcs/GitVcsDriver.ts";
 import * as McpInvocationContext from "../../McpInvocationContext.ts";
 
@@ -148,7 +149,7 @@ const ThreadLaunchTool = Tool.make("t3_thread_launch", {
     workspaceStrategy: Schema.optional(
       OrchestrationV2ThreadLaunchWorkspaceStrategy.annotate({
         description:
-          "'worktree': new checkout from `baseRef`. Honor a requested base. Otherwise, independent work uses the default branch as `remote/branch` (e.g. `origin/main`) with `startFromOrigin: true`; with no remote, use the local default branch. Required unpublished commits and dependent or stacked work use their local base with `startFromOrigin: false`. 'existing_worktree': bind `worktreePath`, a project worktree. 'root': project checkout, the default, not your worktree. Uncommitted edits are not copied.",
+          "'worktree': new Git worktree or Jujutsu workspace from `baseRef` (branch or bookmark; Jujutsu also accepts a change id or commit id). Honor a requested base. Otherwise, independent work uses the default branch or bookmark as `remote/branch` (e.g. `origin/main`) with `startFromOrigin: true`; with no remote, use the local default branch or bookmark. Required unpublished commits and dependent or stacked work use their local base (Jujutsu: `t3_worktree_status` committedBase.changeId) with `startFromOrigin: false`. 'existing_worktree': bind `worktreePath`, a project worktree. 'root': project checkout, the default, not your worktree. Uncommitted edits are not copied.",
       }),
     ),
     message: Schema.optional(
@@ -178,6 +179,7 @@ const ThreadLaunchTool = Tool.make("t3_thread_launch", {
     ...shared.dependencies,
     ThreadLaunchService.ThreadLaunchService,
     ManagedProjectFolders.ManagedProjectFolders,
+    GitWorkflowService.GitWorkflowService,
     GitVcsDriver.GitVcsDriver,
     FileSystem.FileSystem,
     ServerConfig.ServerConfig,

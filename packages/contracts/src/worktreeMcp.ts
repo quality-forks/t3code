@@ -1,13 +1,16 @@
 import * as Schema from "effect/Schema";
 
 import { TrimmedNonEmptyString } from "./baseSchemas.ts";
+import { VcsCommittedBase } from "./git.ts";
+import { VcsDriverKind } from "./vcs.ts";
 
 /** Uses the managed worktree folder; handoff detaches the provider, ending this turn and resuming there next run. */
 export const WorktreeMcpHandoffInput = Schema.Struct({
-  branch: TrimmedNonEmptyString,
+  branch: TrimmedNonEmptyString.annotate({ description: "New branch or bookmark name." }),
   baseRef: Schema.optional(
     TrimmedNonEmptyString.annotate({
-      description: "Default: checked-out branch.",
+      description:
+        "Branch or bookmark; Jujutsu also accepts a change id or commit id. Default: current ref, or committedBase.changeId from status for a local Jujutsu start.",
     }),
   ),
   startFromOrigin: Schema.optional(
@@ -23,7 +26,7 @@ export const WorktreeMcpHandoffInput = Schema.Struct({
   ),
   continuationPrompt: Schema.optional(
     TrimmedNonEmptyString.check(Schema.isMaxLength(120_000)).annotate({
-      description: "Work to resume in the worktree next turn. Omitted: thread waits.",
+      description: "Work to resume in the isolated checkout next turn. Omitted: thread waits.",
     }),
   ),
 });
@@ -65,7 +68,7 @@ export type WorktreeMcpContinuationStatus = typeof WorktreeMcpContinuationStatus
 
 export const WorktreeMcpHandoffResult = Schema.Struct({
   worktreePath: TrimmedNonEmptyString,
-  branch: TrimmedNonEmptyString,
+  branch: TrimmedNonEmptyString.annotate({ description: "New branch or bookmark name." }),
   baseRef: TrimmedNonEmptyString,
   startedFromOrigin: Schema.Boolean,
   setupScript: WorktreeMcpSetupScriptStatus,
@@ -75,6 +78,8 @@ export const WorktreeMcpHandoffResult = Schema.Struct({
 export type WorktreeMcpHandoffResult = typeof WorktreeMcpHandoffResult.Type;
 
 export const WorktreeMcpStatusResult = Schema.Struct({
+  vcsKind: VcsDriverKind,
+  committedBase: Schema.optional(VcsCommittedBase),
   attached: Schema.Boolean,
   worktreePath: Schema.NullOr(TrimmedNonEmptyString),
   branch: Schema.NullOr(TrimmedNonEmptyString),

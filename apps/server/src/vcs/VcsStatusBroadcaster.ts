@@ -584,7 +584,7 @@ export const make = Effect.gen(function* () {
           },
           { publish: true },
         );
-        upstreamReads.set(cwd, divergence.details);
+        if (divergence.details !== undefined) upstreamReads.set(cwd, divergence.details);
       }
     }
     return local;
@@ -648,6 +648,7 @@ export const make = Effect.gen(function* () {
       const local = yield* workflow.localStatus({ cwd });
       if (
         !local.isRepo ||
+        local.vcs?.kind === "jj" ||
         !local.isDefaultRef ||
         local.hasWorkingTreeChanges ||
         local.refName !== remoteRead?.branch

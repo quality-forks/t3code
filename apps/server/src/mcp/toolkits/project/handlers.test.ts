@@ -1,3 +1,5 @@
+import * as GitWorkflowService from "../../../git/GitWorkflowService.ts";
+import * as VcsDriverRegistry from "../../../vcs/VcsDriverRegistry.ts";
 import * as ProviderRegistry from "../../../provider/ProviderRegistry.ts";
 import { expect, it } from "@effect/vitest";
 import {
@@ -189,6 +191,38 @@ const clientLaunchHarness = (input: {
     }),
     DocumentText.layer.pipe(Layer.provideMerge(NodeServices.layer)),
   ).pipe(
+    Layer.provideMerge(
+      Layer.effect(
+        GitWorkflowService.GitWorkflowService,
+        Effect.gen(function* () {
+          const git = yield* GitVcsDriver.GitVcsDriver;
+          return yield* GitWorkflowService.GitWorkflowService.pipe(
+            Effect.provide(
+              Layer.mock(GitWorkflowService.GitWorkflowService)({
+                repositoryKind: () => Effect.succeed("git" as const),
+                listWorkspacePaths: git.listWorktreePaths,
+                localStatus: () =>
+                  Effect.succeed({
+                    isRepo: true,
+                    hasPrimaryRemote: false,
+                    isDefaultRef: false,
+                    refName: null,
+                    hasWorkingTreeChanges: false,
+                    workingTree: { files: [], insertions: 0, deletions: 0 },
+                  }),
+                committedBase: (cwd) =>
+                  git.resolveCommit({ cwd, revision: "HEAD" }).pipe(
+                    Effect.map((commit) => commit.commitSha),
+                    Effect.orElseSucceed(() => null),
+                  ),
+                currentBranch: (cwd) =>
+                  git.statusDetails(cwd).pipe(Effect.map((status) => status.branch)),
+              }),
+            ),
+          );
+        }),
+      ),
+    ),
     Layer.provideMerge(GitVcsDriver.layer),
     Layer.provideMerge(VcsProcess.layer),
     Layer.provideMerge(
@@ -1057,6 +1091,7 @@ it.effect("an agent's clone is not cut off while git is still transferring", () 
       launched: [],
     });
     const repositories = Repositories.layer.pipe(
+      Layer.provide(Layer.mock(VcsDriverRegistry.VcsDriverRegistry)({})),
       Layer.provide(
         Layer.mock(SourceControlProviderRegistry.SourceControlProviderRegistry)({
           resolveLink: () => undefined,

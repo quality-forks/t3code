@@ -1,3 +1,4 @@
+import * as GitWorkflowService from "../git/GitWorkflowService.ts";
 import * as NodeCrypto from "@effect/platform-node/NodeCrypto";
 import * as NodeServices from "@effect/platform-node/NodeServices";
 import { assert, it } from "@effect/vitest";
@@ -174,7 +175,12 @@ it.effect.each([
       const layerTest = Layer.merge(
         OrchestratorMcpService.layer.pipe(
           Layer.provide(Layer.mock(ThreadLaunchService.ThreadLaunchService)({})),
-          Layer.provide(Layer.mock(GitVcsDriver.GitVcsDriver)({})),
+          Layer.provide(
+            Layer.mergeAll(
+              Layer.mock(GitVcsDriver.GitVcsDriver)({}),
+              Layer.mock(GitWorkflowService.GitWorkflowService)({}),
+            ),
+          ),
         ),
         layerRecovery,
       ).pipe(
