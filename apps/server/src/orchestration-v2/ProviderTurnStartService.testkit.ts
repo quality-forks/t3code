@@ -18,6 +18,9 @@ import * as Layer from "effect/Layer";
 
 import * as GitWorkflow from "../git/GitWorkflowService.ts";
 import * as ProjectService from "../project/ProjectService.ts";
+import * as JjVcsDriver from "../vcs/JjVcsDriver.ts";
+import * as JjWorkflow from "../jj/JjWorkflow.ts";
+import { emptyCheckpointOps } from "../vcs/testing/JjTestSupport.ts";
 
 export const layer = Layer.merge(
   Layer.mock(GitWorkflow.GitWorkflowService)({
@@ -55,6 +58,20 @@ export const layerRealGit = GitWorkflow.layer.pipe(
     ),
   ),
   Layer.provide(VcsDriverRegistry.layer.pipe(Layer.provide(VcsProjectConfig.layer))),
+  Layer.provide(
+    Layer.mock(JjVcsDriver.JjVcsDriver)({
+      checkpoints: emptyCheckpointOps,
+      capabilities: {
+        kind: "jj",
+        supportsWorktrees: false,
+        supportsBookmarks: true,
+        supportsAtomicSnapshot: true,
+        supportsPushDefaultRemote: false,
+        ignoreClassifier: "git-compatible-fallback",
+      },
+    }),
+  ),
+  Layer.provide(Layer.mock(JjWorkflow.JjWorkflow)({})),
   Layer.provideMerge(GitVcsDriver.layer),
   Layer.provideMerge(VcsProcess.layer),
   Layer.provideMerge(ServerConfig.layerTest(process.cwd(), { prefix: "t3-recreate-" })),
