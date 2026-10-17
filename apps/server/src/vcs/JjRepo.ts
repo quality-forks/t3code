@@ -57,6 +57,25 @@ export const isBareGitRepository = Effect.fn("JjRepo.isBareGitRepository")(funct
  *
  * Returns `null` when `cwd` does not exist or no marker is found.
  */
+/** A gitdir file alone can also be a submodule or separate Git directory, not a linked worktree. */
+export const isGitLinkedWorktree = Effect.fn("JjRepo.isGitLinkedWorktree")(function* (
+  fileSystem: FileSystem.FileSystem,
+  path: Path.Path,
+  workspaceRoot: string,
+): Effect.fn.Return<boolean, never> {
+  const pointer = yield* fileSystem
+    .readFileString(path.join(workspaceRoot, ".git"))
+    .pipe(Effect.orElseSucceed(() => ""));
+  const gitDir = /^gitdir:\s*(.+)$/m.exec(pointer)?.[1]?.trim();
+  if (!gitDir) return false;
+  return yield* fileSystem.stat(path.join(path.resolve(workspaceRoot, gitDir), "commondir")).pipe(
+    Effect.map((info) => info.type === "File"),
+    Effect.orElseSucceed(() => false),
+  );
+});
+
+// Stop at the nearest marker: inner Git repositories outrank outer jj workspaces.
+// Missing directories must never walk up into an unrelated repository.
 export const findVcsMarkerRoot = Effect.fn("JjRepo.findVcsMarkerRoot")(function* (
   fileSystem: FileSystem.FileSystem,
   path: Path.Path,

@@ -3375,6 +3375,16 @@ export default function ChatView(props: ChatViewProps) {
             {isWorkspaceFileDragActive ? <WorkspaceFileDropOverlay /> : null}
             <ChatBannerLane
               environmentId={activeThread.environmentId}
+              vcsFallbackNotice={
+                activeProject
+                  ? {
+                      environmentId,
+                      repository: activeProject.workspaceRoot,
+                      notice: vcsFallbackNotice,
+                      reason: vcsUnsupportedReason,
+                    }
+                  : null
+              }
               vcsUnsupportedReason={vcsUnsupportedReason}
               providerStatus={visibleProviderStatus}
               providerStatusBannerKey={providerStatusBannerKey}
