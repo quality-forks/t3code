@@ -60,7 +60,7 @@ export interface JjCommandOptions {
   readonly readingChange?: boolean;
   /** Let VcsProcess retry transient checkpoint failures before mapping their diagnostics. */
   readonly retryTransientFailures?: boolean;
-  /** Refresh stale workspace metadata once before retrying the command. */
+  /** Cleanup must preserve stale files rather than updating the workspace behind the user. */
   readonly retryStaleWorkspace?: boolean;
   /** Extra `--config KEY=VALUE` pairs, applied to this invocation only. */
   readonly config?: ReadonlyArray<readonly [key: string, value: string]>;
