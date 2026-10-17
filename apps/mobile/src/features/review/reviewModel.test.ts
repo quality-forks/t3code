@@ -3,34 +3,8 @@ import { describe, expect, it } from "vite-plus/test";
 import {
   applyReviewDiffMetadata,
   buildReviewParsedDiff,
-  resolveReviewSelectedSectionId,
-  type ReviewSectionItem,
+  buildReviewSectionItems,
 } from "./reviewModel";
-
-function makeSection(id: string): ReviewSectionItem {
-  return {
-    id,
-    kind: id.startsWith("turn:") ? "turn" : "branch-range",
-    title: id,
-    subtitle: null,
-    diff: null,
-    isLoading: false,
-  };
-}
-
-describe("resolveReviewSelectedSectionId", () => {
-  const turn = makeSection("turn:2");
-  const changes = makeSection("git:branch-range");
-
-  it("shows Changes before anything is picked, not the first section", () => {
-    expect(resolveReviewSelectedSectionId([turn, changes], null)).toBe("git:branch-range");
-  });
-
-  it("shows the default while the picked section loads and returns to the pick once it does", () => {
-    expect(resolveReviewSelectedSectionId([changes], "turn:2")).toBe("git:branch-range");
-    expect(resolveReviewSelectedSectionId([turn, changes], "turn:2")).toBe("turn:2");
-  });
-});
 
 describe("buildReviewParsedDiff", () => {
   it("keeps UI identities compact, stable, and isolated from parser cache keys", () => {
@@ -303,4 +277,56 @@ describe("applyReviewDiffMetadata", () => {
     expect(result.notice).toContain("Counts include all changes");
     expect(applyReviewDiffMetadata(parsed, null)).toEqual(parsed);
   });
+});
+
+it("names a missing base with the project's ref noun", () => {
+  const [section] = buildReviewSectionItems({
+    checkpoints: [],
+    gitSections: [
+      {
+        id: "branch-range",
+        kind: "branch-range",
+        title: "Bookmark changes",
+        baseRef: null,
+        headRef: null,
+        diff: "",
+        diffHash: "h",
+        truncated: false,
+      },
+    ],
+    turnDiffById: {},
+    loadingGitSections: false,
+    vcsKind: "jj",
+  });
+
+  expect(section?.subtitle).toBe("Base bookmark unavailable");
+});
+
+it("uses jj working copy language while loading and after preview arrives", () => {
+  const input = {
+    checkpoints: [],
+    turnDiffById: {},
+    loadingGitSections: true,
+    vcsKind: "jj" as const,
+  };
+  expect(buildReviewSectionItems({ ...input, gitSections: [] })[0]?.title).toBe(
+    "Against base bookmark",
+  );
+  const items = buildReviewSectionItems({
+    ...input,
+    loadingGitSections: false,
+    gitSections: [
+      {
+        id: "working-tree",
+        kind: "working-tree",
+        title: "Working copy",
+        baseRef: "@-",
+        headRef: "@",
+        diff: "",
+        diffHash: "h",
+        truncated: false,
+      },
+    ],
+  });
+  expect(items[0]?.subtitle).toBe("Working copy changes");
 });

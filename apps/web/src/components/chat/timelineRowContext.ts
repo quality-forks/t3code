@@ -1,4 +1,4 @@
-import type { ToolCallDiffTarget } from "../../diffPanelStore";
+import type { VcsTerminology } from "@t3tools/shared/vcs";
 import type {
   ProviderApprovalDecision,
   RuntimeRequestId,
@@ -15,6 +15,7 @@ import {
   ThreadId,
   type TurnItemId,
 } from "@t3tools/contracts";
+import type { ToolCallDiffTarget } from "../../diffPanelStore";
 import type { AsyncResult, Atom } from "effect/reactivity";
 import type { CommandOutputView } from "@t3tools/client-runtime/state/command-output";
 import type { WorkflowOpening } from "@t3tools/client-runtime/state/subagentRuntime";
@@ -43,6 +44,7 @@ export interface TurnItemSource {
 }
 
 export interface TimelineRowSharedState {
+  vcsTerminology: VcsTerminology;
   pendingApprovals: ReadonlyMap<RuntimeRequestId, PendingApproval>;
   respondingRequestIds: ReadonlyArray<RuntimeRequestId>;
   canOperateThread: boolean;

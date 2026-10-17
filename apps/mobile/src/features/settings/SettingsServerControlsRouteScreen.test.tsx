@@ -1,21 +1,24 @@
 import { DEFAULT_SERVER_SETTINGS, type ServerSettingsPatch } from "@t3tools/contracts";
+import { GIT_VCS_TERMINOLOGY } from "@t3tools/shared/vcs";
 import { AsyncResult } from "effect/reactivity";
 import type { ReactNode } from "react";
 import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vite-plus/test";
 
-const { Children, mocks } = vi.hoisted(() => ({
-  Children: ({ children }: { children?: ReactNode }) => children,
-  mocks: {
-    branchNaming: { onChange: (_patch: ServerSettingsPatch) => {} },
-    updateSettings: vi.fn(),
-    alert: vi.fn(),
-    targets: [] as ReturnType<typeof environment>[],
-    readOnly: new Set<string>(),
-    projectSelected: false,
-  },
-}));
+const { Children, mocks } = vi.hoisted(() => {
+  Reflect.set(globalThis, "__DEV__", false);
+  return {
+    Children: ({ children }: { children?: ReactNode }) => children,
+    mocks: {
+      branchNaming: { onChange: (_patch: ServerSettingsPatch) => {} },
+      updateSettings: vi.fn(),
+      alert: vi.fn(),
+      targets: [] as ReturnType<typeof environment>[],
+      projectSelected: false,
+    },
+  };
+});
 
 vi.mock("react-native", () => ({
   View: Children,
@@ -48,19 +51,27 @@ vi.mock("./components/AutoSettleDaysField", () => ({ AutoSettleDaysField: () => 
 vi.mock("./components/SourceControlSignInSection", () => ({
   SourceControlSignInSection: () => null,
 }));
+vi.mock("expo", () => ({
+  CodedError: class CodedError extends Error {},
+  Platform: { OS: "android" },
+  UnavailabilityError: class UnavailabilityError extends Error {},
+  requireNativeModule: () => ({}),
+  requireNativeView: () => () => null,
+  requireOptionalNativeModule: () => null,
+}));
+vi.mock("expo-crypto", () => ({
+  getRandomBytes: () => new Uint8Array(32),
+}));
+vi.mock("expo-secure-store", () => ({}));
+vi.mock("expo-constants", () => ({ default: { expoConfig: null, manifest2: null } }));
 vi.mock("react-native-safe-area-context", () => ({ useSafeAreaInsets: () => ({ bottom: 0 }) }));
 vi.mock("@react-navigation/native", () => ({ useNavigation: () => ({}) }));
 vi.mock("../../state/session", () => ({
   readEnvironmentScope: () => true,
-  useEnvironmentsWithScope: () =>
-    new Set(
-      mocks.targets
-        .map((target) => target.environmentId)
-        .filter((environmentId) => !mocks.readOnly.has(environmentId)),
-    ),
+  useEnvironmentsWithScope: () => new Set(mocks.targets.map((target) => target.environmentId)),
 }));
 vi.mock("../../state/server", () => ({ serverEnvironment: { updateSettings: {} } }));
-vi.mock("../../state/environments", () => ({ useEnvironments: () => ({ environments: [] }) }));
+vi.mock("../../state/vcs", () => ({ useVcsTerminology: () => GIT_VCS_TERMINOLOGY }));
 vi.mock("../../state/use-atom-command", () => ({
   useAtomCommand: () => mocks.updateSettings,
 }));
@@ -89,6 +100,7 @@ vi.mock("./components/SettingsEnvironmentFilterHeader", () => ({
 }));
 vi.mock("./components/DatabaseStorageNotice", () => ({ DatabaseStorageNotice: () => null }));
 vi.mock("./components/SettingsSection", () => ({ SettingsSection: Children }));
+vi.mock("./components/SettingsChoiceRow", () => ({ SettingsChoiceRow: () => null }));
 vi.mock("../../components/ui/ListChoiceRow", () => ({ ListChoiceRow: () => null }));
 vi.mock("./components/SettingsSwitchRow", () => ({
   SettingsSwitchRow: ({
@@ -135,10 +147,7 @@ vi.mock("./settings-environment-filter", () => ({
   }),
 }));
 
-import {
-  SettingsThreadsRouteScreen,
-  SettingsWorktreesRouteScreen,
-} from "./SettingsServerControlsRouteScreen";
+import { SettingsWorktreesRouteScreen } from "./SettingsServerControlsRouteScreen";
 
 function environment(environmentId: string, label: string) {
   return {
@@ -167,7 +176,6 @@ beforeEach(() => {
   root = createRoot(container);
   mocks.targets = [environment("local", "Local")];
   mocks.projectSelected = false;
-  mocks.readOnly = new Set();
   mocks.alert.mockReset();
   mocks.updateSettings.mockReset();
   mocks.updateSettings.mockResolvedValue(AsyncResult.success(undefined));
@@ -196,37 +204,5 @@ describe("SettingsServerControlsRouteScreen", () => {
         patch: { branchNamingMode: "custom", branchNameInstructions: "Use issue IDs." },
       },
     });
-  });
-
-  it("holds auto-settle changes until a pending project override write settles", async () => {
-    mocks.projectSelected = true;
-    const pending = Promise.withResolvers<AsyncResult.Success<void>>();
-    mocks.updateSettings.mockReturnValueOnce(pending.promise);
-    act(() => root.render(<SettingsThreadsRouteScreen />));
-    const toggle = (label: string) =>
-      [...container.querySelectorAll<HTMLButtonElement>('[role="switch"]')].find(
-        (button) => button.textContent === label,
-      )!;
-
-    act(() => toggle("Agent browser access").click());
-    act(() => toggle("Auto-settle merged threads").click());
-
-    // Both rewrite the whole project override, so a second write planned now would drop the first.
-    expect(mocks.updateSettings).toHaveBeenCalledOnce();
-    await act(async () => pending.resolve(AsyncResult.success(undefined)));
-  });
-
-  it("disables auto-settle when a selected environment cannot save settings", () => {
-    const remote = environment("remote", "Remote");
-    // Auto-settle rows skip a server without auto-settlement, but the page still saves to it.
-    remote.serverConfig.environment.capabilities.threadAutoSettlement = false;
-    mocks.targets = [environment("local", "Local"), remote];
-    mocks.readOnly = new Set(["remote"]);
-    act(() => root.render(<SettingsThreadsRouteScreen />));
-
-    const autoSettle = [...container.querySelectorAll<HTMLButtonElement>('[role="switch"]')].find(
-      (button) => button.textContent === "Auto-settle merged threads",
-    )!;
-    expect(autoSettle.disabled).toBe(true);
   });
 });

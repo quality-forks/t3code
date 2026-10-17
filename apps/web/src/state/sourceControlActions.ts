@@ -308,7 +308,7 @@ export function useSourceControlPublishRepositoryAction(scope: SourceControlActi
 }
 
 export function usePreparePullRequestThreadAction(scope: SourceControlActionScope) {
-  const preparePullRequestThread = useAtomCommand(gitEnvironment.preparePullRequestThread, {
+  const preparePullRequestThread = useAtomCommand(vcsEnvironment.preparePullRequestThread, {
     reportFailure: false,
   });
   const action = async (input: {

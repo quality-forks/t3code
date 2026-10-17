@@ -28,8 +28,10 @@ import { DatabaseStorageNotice } from "./components/DatabaseStorageNotice";
 import { ListChoiceRow as SettingsChoiceRow } from "../../components/ui/ListChoiceRow";
 import { SettingsSection } from "./components/SettingsSection";
 import { SettingsSwitchRow } from "./components/SettingsSwitchRow";
-import { SourceControlSignInSection } from "./components/SourceControlSignInSection";
 import { SettingsProjectOverridesSection } from "./components/SettingsProjectOverridesSection";
+import { SourceControlSignInSection } from "./components/SourceControlSignInSection";
+import { AutoSettleSettingsRows } from "./ThreadSettingsSections";
+import { supportsSharedSettingsSync } from "@t3tools/client-runtime/state/shared-settings";
 import { useSettingsEnvironmentFilter } from "./settings-environment-filter";
 import { useSettingsWriter } from "./useSettingsWriter";
 import {
@@ -40,24 +42,27 @@ import {
   type ScopedMobileSettingsTarget,
 } from "./settings-scoped-server";
 import { PullRequestGlyph } from "../pull-requests/pullRequestGlyphs";
-import { AutoSettleSettingsRows } from "./ThreadSettingsSections";
-import { supportsSharedSettingsSync } from "@t3tools/client-runtime/state/shared-settings";
+import { useVcsTerminology } from "../../state/vcs";
 
-type SettingsPage = "threads" | "source-control" | "worktrees" | "maintenance";
+type SettingsPage =
+  | "new-threads"
+  | "source-control"
+  | "worktrees"
+  | "agent-behavior"
+  | "maintenance";
 
 const PAGE_TITLES: Record<SettingsPage, string> = {
-  threads: "Threads",
+  "new-threads": "New threads",
   "source-control": "Source control",
   worktrees: "Worktrees",
+  "agent-behavior": "Agent behavior",
   maintenance: "Maintenance",
 };
 
 const PAGE_PROJECT_KEYS: Record<SettingsPage, readonly ProjectScopedServerSettingKey[]> = {
-  threads: [
+  "new-threads": [
     "defaultThreadEnvMode",
     "defaultRuntimeMode",
-    "responseStreamingMode",
-    "enableAgentBrowserAccess",
     "sidebarAutoSettleOnMerge",
     "sidebarAutoSettleAfterDays",
   ],
@@ -69,8 +74,34 @@ const PAGE_PROJECT_KEYS: Record<SettingsPage, readonly ProjectScopedServerSettin
     "branchNamePrefix",
     "branchNameInstructions",
   ],
+  "agent-behavior": ["responseStreamingMode", "enableAgentBrowserAccess"],
   maintenance: ["continueThreadsAfterServerUpdate"],
 };
+
+const AUTO_SETTLE_SETTING_KEYS: ReadonlySet<string> = new Set([
+  "sidebarAutoSettleOnMerge",
+  "sidebarAutoSettleAfterDays",
+  "autoResumeLimitedThreads",
+  "snoozeLimitedThreads",
+]);
+
+function planServerSettingsWrites(
+  targets: readonly ScopedMobileSettingsTarget[],
+  projectSelected: boolean,
+  patch: ServerSettingsPatch,
+) {
+  const capable = targets.filter((target) => supportsSharedSettingsSync(target.environment));
+  const others = targets.filter((target) => !supportsSharedSettingsSync(target.environment));
+  const othersPatch = Object.fromEntries(
+    Object.entries(patch).filter(([key]) => !AUTO_SETTLE_SETTING_KEYS.has(key)),
+  ) as ServerSettingsPatch;
+  return [
+    ...planMobileScopedSettingsPatch(capable, projectSelected, patch),
+    ...(Object.keys(othersPatch).length > 0
+      ? planMobileScopedSettingsPatch(others, projectSelected, othersPatch)
+      : []),
+  ];
+}
 
 const SUBMODULE_CHOICES: ReadonlyArray<{
   readonly mode: WorktreeSubmodules | null;
@@ -130,34 +161,8 @@ const STREAMING_CHOICES: ReadonlyArray<{
   },
 ];
 
-// Only servers with thread auto-settlement store these, so other targets get the rest of a patch.
-const AUTO_SETTLE_SETTING_KEYS: ReadonlySet<string> = new Set([
-  "sidebarAutoSettleOnMerge",
-  "sidebarAutoSettleAfterDays",
-  "autoResumeLimitedThreads",
-  "snoozeLimitedThreads",
-]);
-
-function planServerSettingsWrites(
-  targets: readonly ScopedMobileSettingsTarget[],
-  projectSelected: boolean,
-  patch: ServerSettingsPatch,
-) {
-  const capable = targets.filter((target) => supportsSharedSettingsSync(target.environment));
-  const others = targets.filter((target) => !supportsSharedSettingsSync(target.environment));
-  const othersPatch = Object.fromEntries(
-    Object.entries(patch).filter(([key]) => !AUTO_SETTLE_SETTING_KEYS.has(key)),
-  ) as ServerSettingsPatch;
-  return [
-    ...planMobileScopedSettingsPatch(capable, projectSelected, patch),
-    ...(Object.keys(othersPatch).length > 0
-      ? planMobileScopedSettingsPatch(others, projectSelected, othersPatch)
-      : []),
-  ];
-}
-
-export function SettingsThreadsRouteScreen() {
-  return <ServerSettingsDetail page="threads" />;
+export function SettingsEnvironmentNewThreadsRouteScreen() {
+  return <ServerSettingsDetail page="new-threads" />;
 }
 
 export function SettingsEnvironmentSourceControlRouteScreen() {
@@ -166,6 +171,10 @@ export function SettingsEnvironmentSourceControlRouteScreen() {
 
 export function SettingsWorktreesRouteScreen() {
   return <ServerSettingsDetail page="worktrees" />;
+}
+
+export function SettingsEnvironmentAgentBehaviorRouteScreen() {
+  return <ServerSettingsDetail page="agent-behavior" />;
 }
 
 export function SettingsEnvironmentMaintenanceRouteScreen() {
@@ -177,6 +186,15 @@ function ServerSettingsDetail(props: { readonly page: SettingsPage }) {
   const navigation = useNavigation();
   const { selectedTargets, projectGroups, selectedProjectKey } = useSettingsEnvironmentFilter();
   const selectedProject = projectGroups.find((group) => group.key === selectedProjectKey);
+  const terminologyProjects = selectedProject?.members.filter((member) =>
+    selectedTargets.some((target) => target.environmentId === member.project.environmentId),
+  );
+  const terminologyProject =
+    terminologyProjects?.length === 1 ? terminologyProjects[0]?.project : undefined;
+  const vcsTerminology = useVcsTerminology(
+    terminologyProject?.environmentId ?? null,
+    terminologyProject?.workspaceRoot ?? null,
+  );
   const writableEnvironments = useEnvironmentsWithScope(selectedTargets, AuthSettingsWriteScope);
   const projectSelected = selectedProjectKey !== null;
   const targets = resolveMobileSettingsTargets(
@@ -259,13 +277,23 @@ function ServerSettingsDetail(props: { readonly page: SettingsPage }) {
       setPendingWrites((count) => count - 1);
     });
   };
-  const disabled = !canWriteSettings || pendingWrites > 0 || !hasConnectedSelection;
+  const supportsProjectOverrides = targets.every(
+    (target) =>
+      target.environment.serverConfig.environment.capabilities.projectSettingsOverrides === true,
+  );
+  const disabled =
+    !canWriteSettings ||
+    pendingWrites > 0 ||
+    !hasConnectedSelection ||
+    (projectSelected && !supportsProjectOverrides);
+  const supportsContinuation = targets.every(
+    (target) =>
+      target.environment.serverConfig.environment.capabilities.threadRestartContinuation === true,
+  );
   const disabledFor = (key: string) =>
     disabled ||
     (projectSelected &&
-      !PROJECT_SCOPED_SERVER_SETTING_KEYS.includes(
-        key as (typeof PROJECT_SCOPED_SERVER_SETTING_KEYS)[number],
-      ));
+      !PROJECT_SCOPED_SERVER_SETTING_KEYS.includes(key as ProjectScopedServerSettingKey));
 
   return (
     <>
@@ -300,7 +328,7 @@ function ServerSettingsDetail(props: { readonly page: SettingsPage }) {
                   onClear={clearProjectOverrides}
                 />
               ) : null}
-              {props.page === "threads" ? (
+              {props.page === "new-threads" ? (
                 <>
                   <SettingsSection
                     title="Default workspace"
@@ -346,36 +374,6 @@ function ServerSettingsDetail(props: { readonly page: SettingsPage }) {
                         onPress={() => write({ defaultRuntimeMode: choice.mode })}
                       />
                     ))}
-                  </SettingsSection>
-                  <SettingsSection
-                    title="Response streaming"
-                    trailing={
-                      pendingWrites === 0 && uniform("responseStreamingMode") === null ? (
-                        <MixedValuesLabel projectSelected={projectSelected} />
-                      ) : null
-                    }
-                  >
-                    {STREAMING_CHOICES.map((choice, index) => (
-                      <SettingsChoiceRow
-                        key={choice.mode}
-                        label={choice.label}
-                        description={choice.description}
-                        selected={uniform("responseStreamingMode") === choice.mode}
-                        separated={index > 0}
-                        disabled={disabledFor("responseStreamingMode")}
-                        onPress={() => write({ responseStreamingMode: choice.mode })}
-                      />
-                    ))}
-                  </SettingsSection>
-                  <SettingsSection title="Preview browser">
-                    <SettingsSwitchRow
-                      icon="globe"
-                      label="Agent browser access"
-                      subtitle="Allow agents to use the in-app preview browser."
-                      value={uniform("enableAgentBrowserAccess")}
-                      disabled={disabledFor("enableAgentBrowserAccess")}
-                      onValueChange={(value) => write({ enableAgentBrowserAccess: value })}
-                    />
                   </SettingsSection>
                   <AutoSettleSettingsRows write={write} pending={pendingWrites > 0} />
                 </>
@@ -456,7 +454,43 @@ function ServerSettingsDetail(props: { readonly page: SettingsPage }) {
                     instructions={uniform("branchNameInstructions")}
                     disabled={disabledFor("branchNamingMode")}
                     onChange={write}
+                    terminology={vcsTerminology}
                   />
+                </>
+              ) : null}
+
+              {props.page === "agent-behavior" ? (
+                <>
+                  <SettingsSection
+                    title="Response streaming"
+                    trailing={
+                      pendingWrites === 0 && uniform("responseStreamingMode") === null ? (
+                        <MixedValuesLabel projectSelected={projectSelected} />
+                      ) : null
+                    }
+                  >
+                    {STREAMING_CHOICES.map((choice, index) => (
+                      <SettingsChoiceRow
+                        key={choice.mode}
+                        label={choice.label}
+                        description={choice.description}
+                        selected={uniform("responseStreamingMode") === choice.mode}
+                        separated={index > 0}
+                        disabled={disabledFor("responseStreamingMode")}
+                        onPress={() => write({ responseStreamingMode: choice.mode })}
+                      />
+                    ))}
+                  </SettingsSection>
+                  <SettingsSection title="Preview browser">
+                    <SettingsSwitchRow
+                      icon="globe"
+                      label="Agent browser access"
+                      subtitle="Allow agents to use the in-app preview browser."
+                      value={uniform("enableAgentBrowserAccess")}
+                      disabled={disabledFor("enableAgentBrowserAccess")}
+                      onValueChange={(value) => write({ enableAgentBrowserAccess: value })}
+                    />
+                  </SettingsSection>
                 </>
               ) : null}
 
@@ -504,9 +538,15 @@ function ServerSettingsDetail(props: { readonly page: SettingsPage }) {
                       <SettingsSwitchRow
                         icon="arrow.uturn.forward"
                         label="Continue after restart"
-                        subtitle="Resume interrupted threads after an update or restart."
+                        subtitle={
+                          supportsContinuation
+                            ? "Resume interrupted threads after an update or restart."
+                            : "Update older servers to control restart continuation."
+                        }
                         value={uniform("continueThreadsAfterServerUpdate")}
-                        disabled={disabledFor("continueThreadsAfterServerUpdate")}
+                        disabled={
+                          disabledFor("continueThreadsAfterServerUpdate") || !supportsContinuation
+                        }
                         onValueChange={(value) =>
                           write({ continueThreadsAfterServerUpdate: value })
                         }

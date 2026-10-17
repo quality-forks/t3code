@@ -276,6 +276,12 @@ export function createVcsEnvironmentAtoms<R, E>(
 
   return {
     listRefs,
+    preparePullRequestThread: createEnvironmentRpcCommand(runtime, {
+      label: "environment-data:vcs:prepare-pull-request-thread",
+      tag: WS_METHODS.gitPreparePullRequestThread,
+      scheduler: vcsCommandScheduler,
+      concurrency: vcsCommandConcurrency,
+    }),
     // An uncached read for decisions that must match the repository now, not
     // the persisted list a picker renders from.
     readRefs: createEnvironmentRpcCommand(runtime, {

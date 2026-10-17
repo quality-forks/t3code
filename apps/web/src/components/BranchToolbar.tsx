@@ -5,17 +5,26 @@ import { stackedThreadToast, toastManager } from "./ui/toast";
 import { ComposerContextLabel } from "./ComposerContextLabel";
 import { scopeProjectRef, scopeThreadRef } from "@t3tools/client-runtime/environment";
 import type { EnvironmentId, ProjectId, ThreadId } from "@t3tools/contracts";
-import { FolderGit2Icon, FolderGitIcon, FolderIcon, PlusIcon, ScaleIcon } from "lucide-react";
+import {
+  ChevronDownIcon,
+  FolderGit2Icon,
+  FolderGitIcon,
+  FolderIcon,
+  PlusIcon,
+  ScaleIcon,
+} from "lucide-react";
 import {
   type Ref,
   type MouseEvent as ReactMouseEvent,
-  type ReactNode,
   memo,
   useImperativeHandle,
+  useEffect,
+  useEffectEvent,
+  useLayoutEffect,
   useRef,
   useState,
 } from "react";
-import { flushSync } from "react-dom";
+import type { VcsTerminology } from "@t3tools/shared/vcs";
 
 import { useComposerDraftStore, type DraftId } from "../composerDraftStore";
 import { EnvironmentMachineIcon } from "./EnvironmentMachineIcon";
@@ -66,8 +75,12 @@ import { Tooltip, TooltipPopup, TooltipTrigger } from "./ui/tooltip";
 import { MiddleTruncate } from "./ui/middle-truncate";
 import { ComposerSurface } from "./chat/ComposerSurface";
 import { useComposerMenuProps } from "./chat/composerEventScope";
+import { measureRestingComposerControls } from "./chat/restingComposerControlsMeasurement";
+import { resolveRestingComposerControlsNaturalWidth } from "./composerFooterLayout";
 import { cn } from "~/lib/utils";
 import { observeResize } from "~/lib/observeResize";
+import { selectVcsActionsSupported, selectVcsTerminology, vcsEnvironment } from "../state/vcs";
+import { useEnvironmentQuerySelector } from "../state/query";
 
 export interface BranchToolbarHandle {
   openBranchPicker: () => void;
@@ -97,10 +110,10 @@ interface BranchToolbarProps {
   envLocked: boolean;
   onCheckoutPullRequestRequest?: (reference: string) => void;
   onComposerFocusRequest?: () => void;
-  /** Shown at the end of the composer strip, such as the new thread's permissions. */
-  trailing?: ReactNode;
   availableEnvironments?: readonly EnvironmentOption[];
   onEnvironmentChange?: (environmentId: EnvironmentId) => void;
+  composerControlsHostRef?: (element: HTMLDivElement | null) => void;
+  contextStripVisible?: boolean;
 }
 
 function showWorkspaceContextMenu(event: ReactMouseEvent, workspacePath: string) {
@@ -147,6 +160,7 @@ interface RunContextSelectorProps {
   onAutoEnvironment?: (() => void) | undefined;
   envLocked: boolean;
   envModeLocked: boolean;
+  vcsActionsSupported: boolean;
   environmentId: EnvironmentId;
   availableEnvironments: readonly EnvironmentOption[] | undefined;
   showEnvironmentPicker: boolean;
@@ -160,6 +174,7 @@ interface RunContextSelectorProps {
   onUsePreviousWorktree: () => void;
   addTargets: readonly AddProjectTarget[];
   onAddToMachine: (environmentId: EnvironmentId) => void;
+  terminology: VcsTerminology;
 }
 
 const RunContextSelector = memo(function RunContextSelector({
@@ -170,6 +185,7 @@ const RunContextSelector = memo(function RunContextSelector({
   onAutoEnvironment,
   envLocked,
   envModeLocked,
+  vcsActionsSupported,
   environmentId,
   availableEnvironments,
   showEnvironmentPicker,
@@ -183,6 +199,7 @@ const RunContextSelector = memo(function RunContextSelector({
   onUsePreviousWorktree,
   addTargets,
   onAddToMachine,
+  terminology,
 }: RunContextSelectorProps) {
   const composerFloatingLayerProps = useComposerMenuProps();
   const activeEnvironment =
@@ -194,12 +211,12 @@ const RunContextSelector = memo(function RunContextSelector({
         ? FolderGitIcon
         : FolderIcon;
   const workspaceLabel = forceNewWorktree
-    ? resolveEnvModeLabel("worktree")
+    ? resolveEnvModeLabel("worktree", terminology)
     : envModeLocked
-      ? resolveLockedWorkspaceLabel(activeWorktreePath, effectiveEnvMode)
+      ? resolveLockedWorkspaceLabel(activeWorktreePath, effectiveEnvMode, terminology)
       : effectiveEnvMode === "worktree"
-        ? resolveEnvModeLabel("worktree")
-        : resolveCurrentWorkspaceLabel(activeWorktreePath);
+        ? resolveEnvModeLabel("worktree", terminology)
+        : resolveCurrentWorkspaceLabel(activeWorktreePath, terminology);
   const isPanel = displayMode === "panel";
   const isLocked = envLocked || (envModeLocked && (!isPanel || !showEnvironmentPicker));
   const workspacePath =
@@ -215,42 +232,46 @@ const RunContextSelector = memo(function RunContextSelector({
     <Tooltip>
       <TooltipTrigger render={<span className="inline-flex shrink-0" />}>
         <WorkspaceIcon
-          className={isPanel ? THREAD_DETAILS_PANEL_ICON_CLASS : "size-3 shrink-0 mx-0!"}
+          className={
+            isPanel
+              ? THREAD_DETAILS_PANEL_ICON_CLASS
+              : cn("size-3 shrink-0", showEnvironmentIndicator && "mx-0!")
+          }
         />
       </TooltipTrigger>
       <TooltipPopup>
         {isPanel
           ? forceNewWorktree
-            ? "Each model starts in its own worktree."
+            ? `Each model starts in its own ${terminology.workspaceNoun}.`
             : (workspacePath ?? workspaceLabel)
           : workspaceLabel}
       </TooltipPopup>
     </Tooltip>
   );
-  const environmentIcon = (
-    <Tooltip>
-      <TooltipTrigger render={<span className="inline-flex shrink-0" />}>
-        {autoEnvironmentLabel ? (
-          <ScaleIcon
-            className={isPanel ? THREAD_DETAILS_PANEL_ICON_CLASS : "size-3 shrink-0 mx-0!"}
-            aria-hidden="true"
-          />
-        ) : (
-          <EnvironmentMachineIcon
-            kind={activeEnvironment?.machine ?? "server"}
-            // Wide machine glyphs need a little more box to match the square row icons.
-            className={
-              isPanel
-                ? cn(THREAD_DETAILS_PANEL_ICON_CLASS, "-mx-px size-4.5")
-                : "size-3 shrink-0 mx-0!"
-            }
-          />
-        )}
-      </TooltipTrigger>
-      <TooltipPopup>{autoEnvironmentLabel ?? activeEnvironment?.label ?? "Run on"}</TooltipPopup>
-    </Tooltip>
+  const icon = showEnvironmentIndicator ? (
+    // Button's SVG margins consume 4px of the gap; mx-0! restores the intended 2px.
+    <span className="inline-flex shrink-0 items-center gap-0.5">
+      <Tooltip>
+        <TooltipTrigger render={<span className="inline-flex shrink-0" />}>
+          {autoEnvironmentLabel ? (
+            <ScaleIcon
+              className={isPanel ? THREAD_DETAILS_PANEL_ICON_CLASS : "size-3 shrink-0 mx-0!"}
+              aria-hidden="true"
+            />
+          ) : (
+            <EnvironmentMachineIcon
+              kind={activeEnvironment?.machine ?? "server"}
+              className={isPanel ? THREAD_DETAILS_PANEL_ICON_CLASS : "size-3 shrink-0 mx-0!"}
+            />
+          )}
+        </TooltipTrigger>
+        <TooltipPopup>{autoEnvironmentLabel ?? activeEnvironment?.label ?? "Run on"}</TooltipPopup>
+      </Tooltip>
+      {workspaceIcon}
+    </span>
+  ) : (
+    workspaceIcon
   );
-  const icon = showEnvironmentIndicator ? environmentIcon : workspaceIcon;
   const triggerContent = (
     <>
       {icon}
@@ -258,8 +279,6 @@ const RunContextSelector = memo(function RunContextSelector({
         {autoEnvironmentLabel ??
           (showEnvironmentIndicator ? (activeEnvironment?.label ?? "Run on") : workspaceLabel)}
       </ComposerContextLabel>
-      {/* Trailing in the panel, so every row label starts on the same edge. */}
-      {isPanel && showEnvironmentIndicator ? workspaceIcon : null}
     </>
   );
 
@@ -267,16 +286,12 @@ const RunContextSelector = memo(function RunContextSelector({
     return (
       <span
         className={cn(
-          "inline-flex h-7 min-w-0 max-w-[48%] flex-initial items-center justify-start gap-1 rounded-md border border-transparent px-1.75 font-normal text-foreground/70 text-xs sm:h-6 dark:text-muted-foreground",
+          "inline-flex h-7 min-w-0 max-w-[48%] flex-initial items-center justify-start gap-1 rounded-md border border-transparent px-1.75 font-normal text-muted-foreground/70 text-xs sm:h-6",
           isPanel && "max-w-full",
           isPanel && THREAD_DETAILS_PANEL_LOCKED_ROW_CLASS,
         )}
         onContextMenu={handleContextMenu}
-        aria-label={
-          isPanel
-            ? `Run context: ${[autoEnvironmentLabel ?? activeEnvironment?.label, workspaceLabel].filter(Boolean).join(", ")}`
-            : undefined
-        }
+        aria-label={isPanel ? "Run context" : undefined}
         data-composer-context-control
       >
         {triggerContent}
@@ -297,11 +312,7 @@ const RunContextSelector = memo(function RunContextSelector({
               }
             : undefined
         }
-        aria-label={
-          isPanel
-            ? `Run context: ${[autoEnvironmentLabel ?? activeEnvironment?.label, workspaceLabel].filter(Boolean).join(", ")}`
-            : undefined
-        }
+        aria-label={isPanel ? "Run context" : undefined}
         data-composer-context-control
         data-composer-shortcut={[
           showEnvironmentPicker && !envLocked ? "composer.host" : "",
@@ -309,6 +320,7 @@ const RunContextSelector = memo(function RunContextSelector({
         ].join(" ")}
       >
         {triggerContent}
+        {!isPanel ? <ChevronDownIcon className="size-3 shrink-0 opacity-50" /> : null}
       </MenuTrigger>
       <MenuPopup
         align="start"
@@ -400,6 +412,7 @@ const RunContextSelector = memo(function RunContextSelector({
           <MenuRadioGroup
             value={effectiveEnvMode}
             onValueChange={(value) => {
+              if (value !== "local" && !vcsActionsSupported) return;
               if (value === "previous-worktree") {
                 onUsePreviousWorktree();
                 return;
@@ -414,18 +427,33 @@ const RunContextSelector = memo(function RunContextSelector({
                 ) : (
                   <FolderIcon className="size-3" />
                 )}
-                <MiddleTruncate value={resolveCurrentWorkspaceLabel(activeWorktreePath)} />
+                <MiddleTruncate
+                  value={resolveCurrentWorkspaceLabel(activeWorktreePath, terminology)}
+                />
               </span>
             </MenuRadioItem>
-            <MenuRadioItem disabled={envModeLocked} value="worktree" closeOnClick>
+            <MenuRadioItem
+              disabled={envModeLocked || !vcsActionsSupported}
+              value="worktree"
+              closeOnClick
+            >
               <span className="flex min-w-0 items-center gap-1.5">
                 <FolderGit2Icon className="size-3" />
-                <span className="min-w-0 truncate">{resolveEnvModeLabel("worktree")}</span>
+                <span className="min-w-0 truncate">
+                  {resolveEnvModeLabel("worktree", terminology)}
+                </span>
               </span>
             </MenuRadioItem>
             {previousWorktreeLabel ? (
-              <MenuRadioItem disabled={envModeLocked} value="previous-worktree" closeOnClick>
-                <PreviousWorktreeItemContent branch={previousWorktreeBranch} />
+              <MenuRadioItem
+                disabled={envModeLocked || !vcsActionsSupported}
+                value="previous-worktree"
+                closeOnClick
+              >
+                <PreviousWorktreeItemContent
+                  branch={previousWorktreeBranch}
+                  terminology={terminology}
+                />
               </MenuRadioItem>
             ) : null}
           </MenuRadioGroup>
@@ -452,148 +480,148 @@ function labelTextWidth(label: HTMLElement, range: Range): number {
   return Number.isFinite(maxWidth) ? Math.min(width, maxWidth) : width;
 }
 
-function animateLabelWidths(
-  previousRects: ReadonlyMap<HTMLElement, DOMRect>,
-  animations: Map<HTMLElement, Animation>,
-) {
-  for (const animation of animations.values()) animation.cancel();
-  animations.clear();
-  if (window.matchMedia("(prefers-reduced-motion: reduce)").matches) return;
-
-  for (const [label, previousRect] of previousRects) {
-    if (!label.isConnected) continue;
-    const nextWidth = label.getBoundingClientRect().width;
-    if (Math.abs(previousRect.width - nextWidth) < 0.5) continue;
-
-    const animation = label.animate(
-      [
-        { width: `${previousRect.width}px`, maxWidth: `${previousRect.width}px` },
-        { width: `${nextWidth}px`, maxWidth: `${nextWidth}px` },
-      ],
-      {
-        duration: COMPOSER_CONTEXT_MOTION_DURATION_MS,
-        easing: COMPOSER_CONTEXT_MOTION_EASING,
-        fill: "backwards",
-      },
-    );
-    animations.set(label, animation);
-    animation.addEventListener(
-      "finish",
-      () => {
-        if (animations.get(label) === animation) animations.delete(label);
-      },
-      { once: true },
-    );
-  }
-}
-
-/**
- * Whether the strip's labels must collapse to icons. The strip is measured when
- * it, a control group or a hosted control resizes, when its text or children
- * change, and when fonts load, which covers everything the widths depend on.
- */
-function useLabelsOverflow(): readonly [
-  attach: (element: HTMLDivElement | null) => (() => void) | undefined,
-  overflows: boolean,
-] {
+function useLabelsOverflow(element: HTMLDivElement | null): boolean {
   const [overflows, setOverflows] = useState(false);
-
-  const attach = (current: HTMLDivElement | null) => {
+  const pendingLabelRectsRef = useRef<Map<HTMLElement, DOMRect> | null>(null);
+  const labelAnimationsRef = useRef(new Map<HTMLElement, Animation>());
+  const measure = useEffectEvent(() => {
+    const current = element;
+    const compact = overflows;
     if (!current) return;
-    const labelAnimations = new Map<HTMLElement, Animation>();
-
-    const measure = () => {
-      // The committed attribute, not render state, so a stale closure cannot misread it.
-      const compact = current.hasAttribute("data-compact");
-      const stripWidth = current.clientWidth;
-      if (stripWidth === 0) return;
-      const stripStyle = getComputedStyle(current);
-      const available =
-        stripWidth -
-        (Number.parseFloat(stripStyle.paddingInlineStart) || 0) -
-        (Number.parseFloat(stripStyle.paddingInlineEnd) || 0);
-      const contentWidth = (parent: Element): number => {
-        const gap = Number.parseFloat(getComputedStyle(parent).columnGap) || 0;
-        let width = 0;
-        let counted = 0;
-        for (const child of parent.children) {
-          if (!(child instanceof HTMLElement)) continue;
-          if (child.offsetWidth === 0) continue;
-          const style = getComputedStyle(child);
-          const position = style.position;
-          if (position === "absolute" || position === "fixed") continue;
-          width +=
-            child.offsetWidth +
-            (Number.parseFloat(style.marginInlineStart) || 0) +
-            (Number.parseFloat(style.marginInlineEnd) || 0);
-          counted += 1;
-        }
-        return width + gap * Math.max(0, counted - 1);
-      };
-      const stripGap = Number.parseFloat(stripStyle.columnGap) || 0;
-      let needed = 0;
-      let groups = 0;
-      for (const child of current.children) {
+    const stripWidth = current.clientWidth;
+    if (stripWidth === 0) return;
+    const stripStyle = getComputedStyle(current);
+    const available =
+      stripWidth -
+      (Number.parseFloat(stripStyle.paddingInlineStart) || 0) -
+      (Number.parseFloat(stripStyle.paddingInlineEnd) || 0);
+    const contentWidth = (parent: Element): number => {
+      const gap = Number.parseFloat(getComputedStyle(parent).columnGap) || 0;
+      let width = 0;
+      let counted = 0;
+      for (const child of parent.children) {
         if (!(child instanceof HTMLElement)) continue;
-        const width = contentWidth(child);
-        if (width <= 1) continue;
-        groups += 1;
-        needed += width;
+        if (child.offsetWidth === 0) continue;
+        const style = getComputedStyle(child);
+        const position = style.position;
+        if (position === "absolute" || position === "fixed") continue;
+        width +=
+          child.offsetWidth +
+          (Number.parseFloat(style.marginInlineStart) || 0) +
+          (Number.parseFloat(style.marginInlineEnd) || 0);
+        counted += 1;
       }
-      needed += stripGap * Math.max(0, groups - 1);
-      const range = document.createRange();
-      for (const label of current.querySelectorAll<HTMLElement>("[data-composer-label]")) {
-        needed += Math.max(0, labelTextWidth(label, range) - label.getBoundingClientRect().width);
-      }
-      const nextOverflows = resolveContextStripLabelsCompact({
-        compact,
-        neededWidth: needed,
-        availableWidth: available,
-      });
-      if (nextOverflows === compact) return;
-      const previousRects = new Map(
+      return width + gap * Math.max(0, counted - 1);
+    };
+    const stripGap = Number.parseFloat(stripStyle.columnGap) || 0;
+    let needed = 0;
+    let groups = 0;
+    for (const child of current.children) {
+      if (!(child instanceof HTMLElement)) continue;
+      // Reserve overflowed controls' width to prevent repeated hiding and expansion.
+      const hostedControls = child.matches('[data-chat-resting-composer-controls-host="true"]')
+        ? child.querySelector<HTMLElement>('[data-chat-composer-resting-controls="true"]')
+        : null;
+      const hostedMeasurement = hostedControls
+        ? measureRestingComposerControls(hostedControls)
+        : null;
+      const width = hostedMeasurement
+        ? resolveRestingComposerControlsNaturalWidth(hostedMeasurement)
+        : contentWidth(hostedControls ?? child);
+      if (width <= 1) continue;
+      groups += 1;
+      needed += width;
+    }
+    needed += stripGap * Math.max(0, groups - 1);
+    const range = document.createRange();
+    for (const label of current.querySelectorAll<HTMLElement>("[data-composer-label]")) {
+      needed += Math.max(0, labelTextWidth(label, range) - label.getBoundingClientRect().width);
+    }
+    const nextOverflows = resolveContextStripLabelsCompact({
+      compact,
+      neededWidth: needed,
+      availableWidth: available,
+    });
+    if (nextOverflows !== compact) {
+      pendingLabelRectsRef.current = new Map(
         Array.from(current.querySelectorAll<HTMLElement>(COMPOSER_CONTEXT_LABEL_SELECTOR)).map(
-          (label) => [label, label.getBoundingClientRect()] as const,
+          (label) => [label, label.getBoundingClientRect()],
         ),
       );
-      flushSync(() => setOverflows(nextOverflows));
-      animateLabelWidths(previousRects, labelAnimations);
-    };
+    }
+    setOverflows(nextOverflows);
+  });
 
-    let stopResize = () => {};
-    const observeSizes = () => {
-      stopResize();
-      stopResize = observeResize(
+  // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- animates committed DOM label widths after the context strip changes compactness
+  useLayoutEffect(() => {
+    const previousRects = pendingLabelRectsRef.current;
+    if (!previousRects) return;
+    pendingLabelRectsRef.current = null;
+
+    for (const animation of labelAnimationsRef.current.values()) {
+      animation.cancel();
+    }
+    labelAnimationsRef.current.clear();
+
+    if (window.matchMedia("(prefers-reduced-motion: reduce)").matches) return;
+
+    for (const [label, previousRect] of previousRects) {
+      if (!label.isConnected) continue;
+      const nextWidth = label.getBoundingClientRect().width;
+      if (Math.abs(previousRect.width - nextWidth) < 0.5) continue;
+
+      const animation = label.animate(
         [
-          current,
-          ...Array.from(current.children),
-          ...Array.from(current.querySelectorAll(COMPOSER_CONTEXT_LABEL_SELECTOR)),
+          { width: `${previousRect.width}px`, maxWidth: `${previousRect.width}px` },
+          { width: `${nextWidth}px`, maxWidth: `${nextWidth}px` },
         ],
-        measure,
+        {
+          duration: COMPOSER_CONTEXT_MOTION_DURATION_MS,
+          easing: COMPOSER_CONTEXT_MOTION_EASING,
+          fill: "backwards",
+        },
       );
-    };
-    observeSizes();
-    // Text and control changes alter natural widths without resizing a hidden
-    // or squeezed label, so they re-measure too. Only added or removed elements
-    // can change the observed set; re-subscribing delivers a measure itself.
-    const mutations = new MutationObserver((records) => {
-      const elementsChanged = records.some((record) =>
-        [...record.addedNodes, ...record.removedNodes].some((node) => node instanceof Element),
+      labelAnimationsRef.current.set(label, animation);
+      animation.addEventListener(
+        "finish",
+        () => {
+          if (labelAnimationsRef.current.get(label) === animation) {
+            labelAnimationsRef.current.delete(label);
+          }
+        },
+        { once: true },
       );
-      if (elementsChanged) observeSizes();
-      else measure();
-    });
-    mutations.observe(current, { childList: true, characterData: true, subtree: true });
+    }
+  });
+
+  // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- cancels label animations owned by this toolbar when it unmounts
+  useEffect(
+    () => () => {
+      for (const animation of labelAnimationsRef.current.values()) {
+        animation.cancel();
+      }
+    },
+    [],
+  );
+
+  // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- measures committed DOM labels to derive the overflow mode
+  useLayoutEffect(() => {
+    // oxlint-disable-next-line react/set-state-in-effect -- The label mode comes from measuring the committed DOM, which render cannot read.
+    measure();
+  });
+
+  // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- observes DOM size and font loading changes that affect label overflow
+  useEffect(() => {
+    if (!element) return;
+    const stopObserving = observeResize(element, measure);
     document.fonts.addEventListener("loadingdone", measure);
     return () => {
-      stopResize();
-      mutations.disconnect();
+      stopObserving();
       document.fonts.removeEventListener("loadingdone", measure);
-      for (const animation of labelAnimations.values()) animation.cancel();
     };
-  };
+  }, [element]);
 
-  return [attach, overflows] as const;
+  return overflows;
 }
 
 export const BranchToolbar = memo(function BranchToolbar({
@@ -621,7 +649,8 @@ export const BranchToolbar = memo(function BranchToolbar({
   onComposerFocusRequest,
   availableEnvironments,
   onEnvironmentChange,
-  trailing,
+  composerControlsHostRef,
+  contextStripVisible = true,
 }: BranchToolbarProps) {
   const branchSelectorRef = useRef<BranchToolbarBranchSelectorHandle>(null);
   const threadRef = scopeThreadRef(environmentId, threadId);
@@ -632,6 +661,15 @@ export const BranchToolbar = memo(function BranchToolbar({
   const activeWorktreePath = forceNewWorktree ? null : worktreePath;
   const effectiveEnvMode = forceNewWorktree ? "worktree" : envMode;
   const envModeLocked = envLocked || (isServerThread && activeWorktreePath !== null);
+  const workspaceCwd = activeWorktreePath ?? activeProject?.workspaceRoot ?? null;
+  // Use the branch selector's full-status key for toolbar and workspace-panel controls.
+  const showVcsControls = activeProject !== null && showGitControls;
+  const vcsStatusAtom =
+    showVcsControls && workspaceCwd !== null
+      ? vcsEnvironment.status({ environmentId, input: { cwd: workspaceCwd } })
+      : null;
+  const vcsTerminology = useEnvironmentQuerySelector(vcsStatusAtom, selectVcsTerminology);
+  const vcsActionsSupported = useEnvironmentQuerySelector(vcsStatusAtom, selectVcsActionsSupported);
 
   const canUsePreviousWorktree = !isServerThread && !envModeLocked && !forceNewWorktree;
   const projectRefsForWorktreeLookup = canUsePreviousWorktree ? [activeProjectRef] : [];
@@ -643,10 +681,10 @@ export const BranchToolbar = memo(function BranchToolbar({
       })
     : null;
   const previousWorktreeLabel = previousWorktreeSeed
-    ? resolvePreviousWorktreeLabel(previousWorktreeSeed)
+    ? resolvePreviousWorktreeLabel(previousWorktreeSeed, vcsTerminology)
     : null;
   const onUsePreviousWorktree = () => {
-    if (!previousWorktreeSeed) return;
+    if (!vcsActionsSupported || !previousWorktreeSeed) return;
     setDraftThreadContext(draftId ?? threadRef, {
       branch: previousWorktreeSeed.branch,
       worktreePath: previousWorktreeSeed.worktreePath,
@@ -688,7 +726,8 @@ export const BranchToolbar = memo(function BranchToolbar({
     activeEnvironment: activeEnvironmentOption,
     canPickEnvironment: hasMultipleEnvironments,
   });
-  const [attachStrip, labelsOverflow] = useLabelsOverflow();
+  const [stripElement, setStripElement] = useState<HTMLDivElement | null>(null);
+  const labelsOverflow = useLabelsOverflow(stripElement);
 
   if (!activeProject) return null;
 
@@ -704,6 +743,7 @@ export const BranchToolbar = memo(function BranchToolbar({
             onAutoEnvironment={onAutoEnvironment}
             envLocked={envLocked}
             envModeLocked={envModeLocked}
+            vcsActionsSupported={vcsActionsSupported}
             environmentId={environmentId}
             availableEnvironments={availableEnvironments}
             showEnvironmentPicker={showEnvironmentPicker}
@@ -717,6 +757,7 @@ export const BranchToolbar = memo(function BranchToolbar({
             onUsePreviousWorktree={onUsePreviousWorktree}
             addTargets={addTargets}
             onAddToMachine={onAddToMachine}
+            terminology={vcsTerminology}
           />
         ) : null}
         {panelSection !== "workspace" ? (
@@ -742,9 +783,13 @@ export const BranchToolbar = memo(function BranchToolbar({
 
   return (
     <ComposerSurface.ContextStrip
-      ref={attachStrip}
+      ref={setStripElement}
       data-compact={labelsOverflow ? "" : undefined}
-      className={cn("gap-1 text-xs font-normal text-foreground/70 dark:text-muted-foreground")}
+      className={cn(
+        "gap-1 text-xs font-normal text-muted-foreground/70",
+        // Hide empty non-Git strips while retaining host width so controls can reappear as the chat grows.
+        !contextStripVisible && "pointer-events-none invisible absolute inset-x-0 top-full",
+      )}
     >
       {showGitControls ? (
         <div className="contents @3xl/composer-surface:hidden">
@@ -754,6 +799,7 @@ export const BranchToolbar = memo(function BranchToolbar({
             onAutoEnvironment={onAutoEnvironment}
             envLocked={envLocked}
             envModeLocked={envModeLocked}
+            vcsActionsSupported={vcsActionsSupported}
             environmentId={environmentId}
             availableEnvironments={availableEnvironments}
             showEnvironmentPicker={showEnvironmentPicker}
@@ -767,6 +813,7 @@ export const BranchToolbar = memo(function BranchToolbar({
             onUsePreviousWorktree={onUsePreviousWorktree}
             addTargets={addTargets}
             onAddToMachine={onAddToMachine}
+            terminology={vcsTerminology}
           />
         </div>
       ) : null}
@@ -775,7 +822,7 @@ export const BranchToolbar = memo(function BranchToolbar({
           className={cn(
             "min-h-7 min-w-10 items-center gap-1 sm:min-h-6",
             showGitControls ? "hidden @3xl/composer-surface:flex" : "flex",
-            "flex-1",
+            composerControlsHostRef ? "shrink" : "flex-1",
           )}
         >
           {showEnvironmentIndicator && availableEnvironments && (
@@ -802,15 +849,26 @@ export const BranchToolbar = memo(function BranchToolbar({
             <BranchToolbarEnvModeSelector
               forceNewWorktree={forceNewWorktree}
               envLocked={envModeLocked}
+              vcsActionsSupported={vcsActionsSupported}
               effectiveEnvMode={effectiveEnvMode}
               activeWorktreePath={activeWorktreePath}
               onEnvModeChange={onEnvModeChange}
               previousWorktreeLabel={previousWorktreeLabel}
               previousWorktreeBranch={previousWorktreeSeed?.branch ?? null}
               onUsePreviousWorktree={onUsePreviousWorktree}
+              terminology={vcsTerminology}
             />
           ) : null}
         </div>
+      ) : null}
+
+      {composerControlsHostRef ? (
+        <div
+          ref={composerControlsHostRef}
+          data-composer-context-control
+          data-chat-resting-composer-controls-host="true"
+          className="flex min-w-0 flex-1 items-center justify-start overflow-x-clip overflow-y-visible"
+        />
       ) : null}
 
       {showGitControls ? (
@@ -831,7 +889,6 @@ export const BranchToolbar = memo(function BranchToolbar({
           {...(onComposerFocusRequest ? { onComposerFocusRequest } : {})}
         />
       ) : null}
-      {trailing}
     </ComposerSurface.ContextStrip>
   );
 });

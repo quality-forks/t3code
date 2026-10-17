@@ -4,6 +4,7 @@ import {
   type WorktreeSetupStage,
 } from "@t3tools/contracts";
 import { formatDuration } from "@t3tools/shared/orchestrationTiming";
+import type { VcsTerminology } from "@t3tools/shared/vcs";
 import {
   CheckIcon,
   CircleAlertIcon,
@@ -14,7 +15,7 @@ import {
   XIcon,
 } from "lucide-react";
 import { ChevronDown, ChevronRight } from "lucide";
-import { useState, type ReactNode } from "react";
+import { useEffect, useState, type ReactNode } from "react";
 
 import { Button } from "~/components/ui/button";
 import { MorphIcon } from "~/components/MorphIcon";
@@ -22,45 +23,33 @@ import { Spinner } from "~/components/ui/spinner";
 import { MiddleTruncate } from "../ui/middle-truncate";
 import { observeVisibleAnimation } from "~/lib/visibleAnimation";
 import { cn } from "~/lib/utils";
-import { useNowSecond } from "~/hooks/useNowSecond";
 import { WorkLogRow } from "./WorkLog";
 
 interface WorktreeSetupCardProps {
   snapshot: WorktreeSetupSnapshot;
+  terminology: VcsTerminology;
   onCancel: (() => void) | null;
   onWorkLocally: (() => void) | null;
   onOpenTerminal: (() => void) | null;
 }
 
-function elapsedMs(startedAt: string | null, endMs: number): number | null {
-  if (!startedAt) return null;
-  const start = Date.parse(startedAt);
-  if (!Number.isFinite(start) || !Number.isFinite(endMs)) return null;
-  return Math.max(0, endMs - start);
+function stageElapsedMs(stage: WorktreeSetupStage, nowMs: number): number | null {
+  if (!stage.startedAt) return null;
+  const start = Date.parse(stage.startedAt);
+  const end = stage.endedAt ? Date.parse(stage.endedAt) : nowMs;
+  if (!Number.isFinite(start) || !Number.isFinite(end)) return null;
+  return Math.max(0, end - start);
 }
 
-/** Mounted only while setup runs, so finished setups never subscribe to the tick. */
-function LiveElapsed({ startedAt }: { startedAt: string }) {
-  const elapsed = elapsedMs(startedAt, useNowSecond());
-  return elapsed === null ? null : <>{formatDuration(elapsed)}</>;
-}
-
-/** A finished duration, or a ticking one while setup is still running. */
-function Elapsed({
-  startedAt,
-  endedAt,
-  live,
-}: {
-  startedAt: string | null;
-  endedAt: string | null;
-  live: boolean;
-}) {
-  if (!startedAt) return null;
-  if (endedAt) {
-    const elapsed = elapsedMs(startedAt, Date.parse(endedAt));
-    return elapsed === null ? null : <>{formatDuration(elapsed)}</>;
-  }
-  return live ? <LiveElapsed startedAt={startedAt} /> : null;
+function useNowWhile(active: boolean): number {
+  const [nowMs, setNowMs] = useState(() => Date.now());
+  // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- updates the elapsed-time display from the native clock while setup is active
+  useEffect(() => {
+    if (!active) return;
+    const id = setInterval(() => setNowMs(Date.now()), 1_000);
+    return () => clearInterval(id);
+  }, [active]);
+  return nowMs;
 }
 
 function StageIcon({ status }: { status: WorktreeSetupStage["status"] }) {
@@ -109,27 +98,35 @@ function ShimmerOverlay({ children }: { children: ReactNode }) {
   );
 }
 
-function headerLabel(snapshot: WorktreeSetupSnapshot): string {
+function headerLabel(snapshot: WorktreeSetupSnapshot, terminology: VcsTerminology): string {
   switch (snapshot.phase) {
     case "running":
-      return "Setting up worktree…";
+      return `Setting up ${terminology.workspaceNoun}…`;
     case "done":
       return snapshot.stages.some((stage) => stage.status === "failed")
-        ? "Worktree ready, setup script failed"
-        : "Worktree ready";
+        ? `${terminology.workspaceNounTitle} ready, setup script failed`
+        : `${terminology.workspaceNounTitle} ready`;
     case "failed":
-      return "Worktree setup failed";
+      return `${terminology.workspaceNounTitle} setup failed`;
     case "cancelled":
-      return "Worktree setup cancelled";
+      return `${terminology.workspaceNounTitle} setup cancelled`;
   }
 }
 
-function SetupHeaderRow({ snapshot }: { snapshot: WorktreeSetupSnapshot }) {
+function SetupHeaderRow({
+  snapshot,
+  terminology,
+  totalElapsed,
+}: {
+  snapshot: WorktreeSetupSnapshot;
+  terminology: VcsTerminology;
+  totalElapsed: number | null;
+}) {
   const running = snapshot.phase === "running";
   const failed = snapshot.phase === "failed";
   const finishedWithFailedStage =
     snapshot.phase === "done" && snapshot.stages.some((stage) => stage.status === "failed");
-  const text = headerLabel(snapshot);
+  const text = headerLabel(snapshot, terminology);
   const tone = failed
     ? "text-destructive-foreground"
     : finishedWithFailedStage
@@ -150,9 +147,11 @@ function SetupHeaderRow({ snapshot }: { snapshot: WorktreeSetupSnapshot }) {
           <span className="block truncate">{text}</span>
           {running ? <ShimmerOverlay>{text}</ShimmerOverlay> : null}
         </span>
-        <span className="ml-auto shrink-0 text-xs text-muted-foreground empty:hidden">
-          <Elapsed startedAt={snapshot.startedAt} endedAt={snapshot.endedAt} live={running} />
-        </span>
+        {totalElapsed !== null ? (
+          <span className="ml-auto shrink-0 text-xs text-muted-foreground">
+            {formatDuration(totalElapsed)}
+          </span>
+        ) : null}
       </div>
     </div>
   );
@@ -160,17 +159,22 @@ function SetupHeaderRow({ snapshot }: { snapshot: WorktreeSetupSnapshot }) {
 
 function StageRow({
   stage,
-  setupRunning,
-  setupEndedAt,
+  nowMs,
   scriptName,
+  terminology,
 }: {
   stage: WorktreeSetupStage;
-  setupRunning: boolean;
-  setupEndedAt: string | null;
+  nowMs: number;
   scriptName: string | null;
+  terminology: VcsTerminology;
 }) {
+  const elapsed = stageElapsedMs(stage, nowMs);
   const label =
-    stage.id === "setup-script" && scriptName ? scriptName : worktreeSetupStageLabel(stage.id);
+    stage.id === "setup-script" && scriptName
+      ? scriptName
+      : stage.id === "fetch"
+        ? `Fetch base ${terminology.refNoun}`
+        : worktreeSetupStageLabel(stage.id);
   const running = stage.status === "running";
   const trailing =
     stage.status === "pending"
@@ -205,14 +209,9 @@ function StageRow({
               {trailing}
             </span>
           ) : null}
-          {stage.status !== "skipped" && stage.status !== "pending" ? (
-            <span className="shrink-0 text-xs text-muted-foreground tabular-nums empty:hidden">
-              <Elapsed
-                startedAt={stage.startedAt}
-                // A stage interrupted by the setup ending stops with it.
-                endedAt={stage.endedAt ?? setupEndedAt}
-                live={setupRunning}
-              />
+          {elapsed !== null && stage.status !== "skipped" && stage.status !== "pending" ? (
+            <span className="shrink-0 text-xs text-muted-foreground tabular-nums">
+              {formatDuration(elapsed)}
             </span>
           ) : null}
         </>
@@ -247,12 +246,18 @@ function OutputTail({ lines, failed }: { lines: ReadonlyArray<string>; failed: b
   );
 }
 
-function SetupDetails({ snapshot }: { snapshot: WorktreeSetupSnapshot }) {
+function SetupDetails({
+  snapshot,
+  terminology,
+}: {
+  snapshot: WorktreeSetupSnapshot;
+  terminology: VcsTerminology;
+}) {
   return (
     <dl className="mt-1 mb-1.5 ml-8 grid grid-cols-[auto_1fr] gap-x-3 gap-y-0.5 text-xs text-muted-foreground">
       {snapshot.branch ? (
         <>
-          <dt className="text-foreground/80">Branch</dt>
+          <dt className="text-foreground/80">{terminology.refNounTitle}</dt>
           <dd className="min-w-0 font-mono">
             <MiddleTruncate value={snapshot.branch} className="flex" />
           </dd>
@@ -284,14 +289,22 @@ function SetupDetails({ snapshot }: { snapshot: WorktreeSetupSnapshot }) {
   );
 }
 
-function CollapsedSummaryRow({ snapshot }: { snapshot: WorktreeSetupSnapshot }) {
+function CollapsedSummaryRow({
+  snapshot,
+  terminology,
+  totalElapsed,
+}: {
+  snapshot: WorktreeSetupSnapshot;
+  terminology: VcsTerminology;
+  totalElapsed: number | null;
+}) {
   const status: WorktreeSetupStage["status"] =
     snapshot.phase === "failed" || snapshot.phase === "cancelled"
       ? "failed"
       : snapshot.stages.some((stage) => stage.id === "setup-script" && stage.status === "failed")
         ? "failed"
         : "done";
-  const label = headerLabel(snapshot);
+  const label = headerLabel(snapshot, terminology);
   return (
     <WorkLogRow
       data-worktree-setup-stage="summary"
@@ -303,9 +316,11 @@ function CollapsedSummaryRow({ snapshot }: { snapshot: WorktreeSetupSnapshot }) 
       }
       label={<span className={stageRowClassName(status)}>{label}</span>}
       trailing={
-        <span className="shrink-0 text-xs text-muted-foreground tabular-nums empty:hidden">
-          <Elapsed startedAt={snapshot.startedAt} endedAt={snapshot.endedAt} live={false} />
-        </span>
+        totalElapsed !== null ? (
+          <span className="shrink-0 text-xs text-muted-foreground tabular-nums">
+            {formatDuration(totalElapsed)}
+          </span>
+        ) : null
       }
     />
   );
@@ -313,6 +328,7 @@ function CollapsedSummaryRow({ snapshot }: { snapshot: WorktreeSetupSnapshot }) 
 
 export function WorktreeSetupCard({
   snapshot,
+  terminology,
   onCancel,
   onWorkLocally,
   onOpenTerminal,
@@ -321,7 +337,13 @@ export function WorktreeSetupCard({
   embedded?: boolean;
 }) {
   const running = snapshot.phase === "running";
+  const nowMs = useNowWhile(running);
   const [detailsOpen, setDetailsOpen] = useState(false);
+  const totalElapsed = (() => {
+    const start = Date.parse(snapshot.startedAt);
+    const end = snapshot.endedAt ? Date.parse(snapshot.endedAt) : nowMs;
+    return Number.isFinite(start) && Number.isFinite(end) ? Math.max(0, end - start) : null;
+  })();
   const setupStage = snapshot.stages.find((stage) => stage.id === "setup-script");
   const showTerminal = onOpenTerminal && setupStage && setupStage.status !== "pending";
   const collapsed = embedded && !running;
@@ -332,18 +354,27 @@ export function WorktreeSetupCard({
       (setupStage.status === "running" && setupStage.tail.length > 0));
 
   return (
-    <section aria-label="Worktree setup" data-worktree-setup-phase={snapshot.phase}>
-      {showHeader ? <SetupHeaderRow snapshot={snapshot} /> : null}
+    <section
+      aria-label={`${terminology.workspaceNounTitle} setup`}
+      data-worktree-setup-phase={snapshot.phase}
+    >
+      {showHeader ? (
+        <SetupHeaderRow snapshot={snapshot} terminology={terminology} totalElapsed={totalElapsed} />
+      ) : null}
       {collapsed ? (
-        <CollapsedSummaryRow snapshot={snapshot} />
+        <CollapsedSummaryRow
+          snapshot={snapshot}
+          terminology={terminology}
+          totalElapsed={totalElapsed}
+        />
       ) : (
         <div className={showHeader ? "pt-1.5" : undefined}>
           {snapshot.stages.map((stage) => (
             <div key={stage.id}>
               <StageRow
                 stage={stage}
-                setupRunning={running}
-                setupEndedAt={snapshot.endedAt}
+                terminology={terminology}
+                nowMs={nowMs}
                 scriptName={snapshot.setupScript?.name ?? null}
               />
               {stage.id === "setup-script" && showTail ? (
@@ -388,7 +419,7 @@ export function WorktreeSetupCard({
           </Button>
         ) : null}
       </div>
-      {detailsOpen ? <SetupDetails snapshot={snapshot} /> : null}
+      {detailsOpen ? <SetupDetails snapshot={snapshot} terminology={terminology} /> : null}
     </section>
   );
 }

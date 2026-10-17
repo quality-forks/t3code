@@ -89,7 +89,6 @@ import {
   NewTaskThreadSettingsRouteScreen,
 } from "./features/threads/ThreadSettingsSheet";
 import { NewTaskFlowProvider } from "./features/threads/new-task-flow-provider";
-import { newTaskFlowKey } from "./features/threads/new-task-flow-state";
 import { NewTaskRouteScreen } from "./features/threads/NewTaskRouteScreen";
 import { SettingsNavigationRouteScreen } from "./features/settings/SettingsNavigationRouteScreen";
 import { SettingsAppearanceRouteScreen } from "./features/settings/SettingsAppearanceRouteScreen";
@@ -102,9 +101,10 @@ import { SettingsEnvironmentsRouteScreen } from "./features/settings/SettingsEnv
 import { SettingsFollowUpRouteScreen } from "./features/settings/SettingsFollowUpRouteScreen";
 import {
   SettingsEnvironmentMaintenanceRouteScreen,
-  SettingsThreadsRouteScreen,
-  SettingsWorktreesRouteScreen,
+  SettingsEnvironmentNewThreadsRouteScreen,
+  SettingsEnvironmentAgentBehaviorRouteScreen,
   SettingsEnvironmentSourceControlRouteScreen,
+  SettingsWorktreesRouteScreen,
 } from "./features/settings/SettingsServerControlsRouteScreen";
 import {
   SettingsScheduledTasksRouteScreen,
@@ -258,7 +258,7 @@ const SETTINGS_SCREENS = {
   }),
   // Old links to New threads and Agent behavior open Threads, which absorbed them.
   SettingsEnvironmentNewThreads: createNativeStackScreen({
-    screen: SettingsThreadsRouteScreen,
+    screen: SettingsEnvironmentNewThreadsRouteScreen,
     linking: "settings/new-threads",
     options: { ...SETTINGS_PAGE_OPTIONS, title: "Threads" },
   }),
@@ -268,7 +268,7 @@ const SETTINGS_SCREENS = {
     options: { ...SETTINGS_PAGE_OPTIONS, title: "Source control" },
   }),
   SettingsEnvironmentAgentBehavior: createNativeStackScreen({
-    screen: SettingsThreadsRouteScreen,
+    screen: SettingsEnvironmentAgentBehaviorRouteScreen,
     linking: "settings/agent-behavior",
     options: { ...SETTINGS_PAGE_OPTIONS, title: "Threads" },
   }),
@@ -298,7 +298,7 @@ const SETTINGS_SCREENS = {
     options: { ...SETTINGS_PAGE_OPTIONS, title: "Notifications" },
   }),
   SettingsThreads: createNativeStackScreen({
-    screen: SettingsThreadsRouteScreen,
+    screen: SettingsEnvironmentNewThreadsRouteScreen,
     linking: "settings/thread-preferences",
     options: { ...SETTINGS_PAGE_OPTIONS, title: "Threads" },
   }),
@@ -522,11 +522,7 @@ function RootStackLayout(props: {
     : draftParams?.draftId;
 
   return (
-    <NewTaskFlowProvider
-      active={draftRouteOnTop}
-      flowKey={draftRoute === undefined ? undefined : newTaskFlowKey(draftRoute)}
-      routeDraftId={routeDraftId}
-    >
+    <NewTaskFlowProvider active={draftRouteOnTop} routeDraftId={routeDraftId}>
       <HardwareKeyboardCommandProvider pathname={pathname}>
         <ShowcaseReadyMarker />
         <SettingsEnvironmentFilterProvider open={settingsOpen}>

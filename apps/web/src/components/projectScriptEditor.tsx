@@ -6,6 +6,7 @@ import {
   type ProjectScriptIcon,
   type ResolvedKeybindingsConfig,
 } from "@t3tools/contracts";
+import { GIT_VCS_TERMINOLOGY } from "@t3tools/shared/vcs";
 import {
   isAtomCommandInterrupted,
   squashAtomCommandFailure,
@@ -19,7 +20,13 @@ import {
   PlayIcon,
   WrenchIcon,
 } from "lucide-react";
-import React, { type FormEvent, type KeyboardEvent, useEffect, useRef, useState } from "react";
+import React, {
+  type FormEvent,
+  type KeyboardEvent,
+  useLayoutEffect,
+  useRef,
+  useState,
+} from "react";
 
 import {
   keybindingValueForCommand,
@@ -134,6 +141,7 @@ export function editorRequestForScript(
 export function ProjectScriptEditorDialog({
   environmentId,
   editScope = AuthOrchestrationOperateScope,
+  workspaceNoun = GIT_VCS_TERMINOLOGY.workspaceNoun,
   request,
   scripts,
   onSubmit,
@@ -142,6 +150,7 @@ export function ProjectScriptEditorDialog({
 }: {
   environmentId: EnvironmentId;
   editScope?: typeof AuthOrchestrationOperateScope | typeof AuthSettingsWriteScope;
+  workspaceNoun?: string;
   request: ProjectScriptEditorRequest | null;
   scripts: ReadonlyArray<ProjectScript>;
   onSubmit: (
@@ -166,15 +175,6 @@ export function ProjectScriptEditorDialog({
   const setValidationError = (message: string | null) => {
     if (request !== null) setErrorState({ request, message });
   };
-  // The last opened request stays shown while the dialog animates closed. Each
-  // new request mounts a fresh form, which drops the previous request's save.
-  const [shown, setShown] = useState<{
-    readonly request: ProjectScriptEditorRequest;
-    readonly key: number;
-  } | null>(request === null ? null : { request, key: 0 });
-  if (request !== null && request !== shown?.request) {
-    setShown({ request, key: (shown?.key ?? 0) + 1 });
-  }
   const [deleteConfirmOpen, setDeleteConfirmOpen] = useComposerMenuState(!canEditActions);
   const [deleteName, setDeleteName] = useState("");
 
@@ -188,23 +188,21 @@ export function ProjectScriptEditorDialog({
       >
         {/* The form owns its fields so a keystroke re-renders it, not the dialog chrome. */}
         <DialogPopup>
-          {shown ? (
-            <ProjectScriptEditorForm
-              key={shown.key}
-              environmentId={environmentId}
-              editScope={editScope}
-              request={shown.request}
-              scripts={scripts}
-              validationError={validationError}
-              onValidationError={setValidationError}
-              onSubmit={onSubmit}
-              onRequestDelete={(name) => {
-                setDeleteName(name);
-                setDeleteConfirmOpen(true);
-              }}
-              onClose={onClose}
-            />
-          ) : null}
+          <ProjectScriptEditorForm
+            environmentId={environmentId}
+            editScope={editScope}
+            workspaceNoun={workspaceNoun}
+            request={request}
+            scripts={scripts}
+            validationError={validationError}
+            onValidationError={setValidationError}
+            onSubmit={onSubmit}
+            onRequestDelete={(name) => {
+              setDeleteName(name);
+              setDeleteConfirmOpen(true);
+            }}
+            onClose={onClose}
+          />
         </DialogPopup>
       </Dialog>
 
@@ -242,6 +240,7 @@ export function ProjectScriptEditorDialog({
 function ProjectScriptEditorForm({
   environmentId,
   editScope,
+  workspaceNoun,
   request,
   scripts,
   validationError,
@@ -252,7 +251,8 @@ function ProjectScriptEditorForm({
 }: {
   environmentId: EnvironmentId;
   editScope: typeof AuthOrchestrationOperateScope | typeof AuthSettingsWriteScope;
-  request: ProjectScriptEditorRequest;
+  workspaceNoun: string;
+  request: ProjectScriptEditorRequest | null;
   scripts: ReadonlyArray<ProjectScript>;
   validationError: string | null;
   onValidationError: (error: string | null) => void;
@@ -266,35 +266,53 @@ function ProjectScriptEditorForm({
   const canEditActions = useEnvironmentScope(environmentId, editScope);
   const canWriteSettings = useEnvironmentScope(environmentId, AuthSettingsWriteScope);
   const formId = React.useId();
-  const [name, setName] = useState(request.initial.name);
-  const [command, setCommand] = useState(request.initial.command);
-  const [icon, setIcon] = useState<ProjectScriptIcon>(request.initial.icon);
+  const [name, setName] = useState("");
+  const [command, setCommand] = useState("");
+  const [icon, setIcon] = useState<ProjectScriptIcon>("play");
   const [iconPickerOpen, setIconPickerOpen] = useComposerMenuState(!canEditActions);
-  const [runOnWorktreeCreate, setRunOnWorktreeCreate] = useState(
-    request.initial.runOnWorktreeCreate,
-  );
-  const [waitForSetup, setWaitForSetup] = useState(request.initial.waitForSetup);
-  const [runOnSettle, setRunOnSettle] = useState(request.initial.runOnSettle);
-  const [keybinding, setKeybinding] = useState(request.initial.keybinding ?? "");
-  const [previewUrl, setPreviewUrl] = useState(request.initial.previewUrl ?? "");
-  const [autoOpenPreview, setAutoOpenPreview] = useState(request.initial.autoOpenPreview);
-  const [isSaving, setIsSaving] = useState(false);
-  const pendingSubmissionRef = useRef<object | null>(null);
-  // A save that settles after this form is replaced must not close or error
-  // the request that replaced it.
-  // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- drops the pending save on unmount so a late result cannot close or fail the next request
-  useEffect(
+  const [runOnWorktreeCreate, setRunOnWorktreeCreate] = useState(false);
+  const [waitForSetup, setWaitForSetup] = useState(false);
+  const [runOnSettle, setRunOnSettle] = useState(false);
+  const [keybinding, setKeybinding] = useState("");
+  const [previewUrl, setPreviewUrl] = useState("");
+  const [autoOpenPreview, setAutoOpenPreview] = useState(false);
+  const [savingRequest, setSavingRequest] = useState<ProjectScriptEditorRequest | null>(null);
+  const pendingSubmissionRef = useRef<{ request: ProjectScriptEditorRequest } | null>(null);
+
+  const isEditing = request?.scriptId != null;
+  const isSaving = request !== null && savingRequest === request;
+
+  // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- clears a pending submission owned by this editor when the request changes or unmounts
+  useLayoutEffect(
     () => () => {
-      pendingSubmissionRef.current = null;
+      if (pendingSubmissionRef.current?.request === request) {
+        pendingSubmissionRef.current = null;
+      }
     },
-    [],
+    [request],
   );
 
-  const isEditing = request.scriptId != null;
+  const [formRequest, setFormRequest] = useState<ProjectScriptEditorRequest | null>(null);
+  if (request !== formRequest) {
+    setFormRequest(request);
+    if (request) {
+      setName(request.initial.name);
+      setCommand(request.initial.command);
+      setIcon(request.initial.icon);
+      setIconPickerOpen(false);
+      setRunOnWorktreeCreate(request.initial.runOnWorktreeCreate);
+      setWaitForSetup(request.initial.waitForSetup);
+      setRunOnSettle(request.initial.runOnSettle);
+      setKeybinding(request.initial.keybinding ?? "");
+      setPreviewUrl(request.initial.previewUrl ?? "");
+      setAutoOpenPreview(request.initial.autoOpenPreview);
+      setSavingRequest(null);
+    }
+  }
 
   const close = () => {
     pendingSubmissionRef.current = null;
-    setIsSaving(false);
+    setSavingRequest(null);
     setIconPickerOpen(false);
     onClose();
   };
@@ -315,7 +333,7 @@ function ProjectScriptEditorForm({
 
   const submit = async (event: FormEvent) => {
     event.preventDefault();
-    if (pendingSubmissionRef.current !== null) return;
+    if (!request || pendingSubmissionRef.current !== null) return;
     if (!readEnvironmentScope(environmentId, editScope)) {
       setValidationError("This connection cannot change project actions.");
       return;
@@ -370,9 +388,9 @@ function ProjectScriptEditorForm({
       return;
     }
 
-    const submission = {};
+    const submission = { request };
     pendingSubmissionRef.current = submission;
-    setIsSaving(true);
+    setSavingRequest(request);
     setIconPickerOpen(false);
     try {
       const result = await onSubmit(request.scriptId, payload);
@@ -393,7 +411,7 @@ function ProjectScriptEditorForm({
     }
     if (pendingSubmissionRef.current === submission) {
       pendingSubmissionRef.current = null;
-      setIsSaving(false);
+      setSavingRequest(null);
     }
   };
 
@@ -496,7 +514,7 @@ function ProjectScriptEditorForm({
               </p>
             </div>
             <label className="flex items-center justify-between gap-3 rounded-md border border-border/70 px-3 py-2 text-sm dark:border-transparent dark:bg-white/[0.035]">
-              <span>Run automatically on worktree creation</span>
+              <span>Run automatically on {workspaceNoun} creation</span>
               <Switch
                 checked={runOnWorktreeCreate}
                 onCheckedChange={(checked) => setRunOnWorktreeCreate(Boolean(checked))}
@@ -515,7 +533,7 @@ function ProjectScriptEditorForm({
               />
             </label>
             <label className="flex items-center justify-between gap-3 rounded-md border border-border/70 px-3 py-2 text-sm dark:border-transparent dark:bg-white/[0.035]">
-              <span>Run in the thread's worktree when the thread settles</span>
+              <span>Run in the thread's {workspaceNoun} when the thread settles</span>
               <Switch
                 checked={runOnSettle}
                 onCheckedChange={(checked) => setRunOnSettle(Boolean(checked))}

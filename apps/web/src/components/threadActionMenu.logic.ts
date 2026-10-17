@@ -1,4 +1,5 @@
 import type { ContextMenuItem } from "@t3tools/contracts";
+import { GIT_VCS_TERMINOLOGY, type VcsTerminology } from "@t3tools/shared/vcs";
 import type { SnoozePreset } from "@t3tools/client-runtime/state/thread-settled";
 
 export type ThreadActionMenuId =
@@ -39,6 +40,7 @@ export function buildDraftActionMenuItems(options: {
   readonly hasPath: boolean;
   readonly hasBranch: boolean;
   readonly hasProject: boolean;
+  readonly terminology?: VcsTerminology;
 }): ReadonlyArray<ContextMenuItem<DraftActionMenuId>> {
   return [
     {
@@ -49,7 +51,13 @@ export function buildDraftActionMenuItems(options: {
       children: [
         ...(options.hasPath ? [{ id: "copy-path" as const, label: "Path", icon: "folder" }] : []),
         ...(options.hasBranch
-          ? [{ id: "copy-branch" as const, label: "Branch", icon: "git-branch" }]
+          ? [
+              {
+                id: "copy-branch" as const,
+                label: (options.terminology ?? GIT_VCS_TERMINOLOGY).refNounTitle,
+                icon: "git-branch",
+              },
+            ]
           : []),
       ],
     },
@@ -73,6 +81,7 @@ export interface ThreadActionMenuState {
     readonly label: string;
     readonly isActive: boolean;
   } | null;
+  readonly terminology?: VcsTerminology;
   readonly isPinned: boolean;
   readonly isSettled: boolean;
   readonly autoSettleEnabled: boolean;
@@ -225,7 +234,13 @@ export function buildThreadActionMenuItems(
       children: [
         { id: "copy-path", label: "Path", icon: "folder" },
         ...(state.branch
-          ? [{ id: "copy-branch" as const, label: "Branch", icon: "git-branch" }]
+          ? [
+              {
+                id: "copy-branch" as const,
+                label: (state.terminology ?? GIT_VCS_TERMINOLOGY).refNounTitle,
+                icon: "git-branch",
+              },
+            ]
           : []),
         { id: "copy-thread", label: "Thread", icon: "message-square" },
         { id: "copy-thread-id", label: "Thread ID", icon: "hash" },
