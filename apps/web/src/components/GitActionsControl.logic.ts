@@ -5,13 +5,17 @@ import type {
 } from "@t3tools/contracts";
 import { isTemporaryWorktreeBranch } from "@t3tools/shared/git";
 import type { ChangeRequestTerminology } from "@t3tools/client-runtime/source-control-clients";
+import { sourceControlClients } from "@t3tools/client-runtime/source-control-clients";
 import {
-  changeRequestTerminologyFor,
   type DefaultBranchActionDialogCopy,
   type DefaultBranchConfirmableAction,
   type GitActionIconName,
   type GitDialogAction,
 } from "@t3tools/client-runtime/state/vcs";
+
+function changeRequestTerminologyFor(gitStatus: VcsStatusResult | null): ChangeRequestTerminology {
+  return sourceControlClients.get(gitStatus?.sourceControlProvider?.kind).changeRequest;
+}
 
 export {
   requiresDefaultBranchConfirmation,

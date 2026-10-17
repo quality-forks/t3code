@@ -41,7 +41,12 @@ vi.mock("./use-atom-command", () => ({
     },
 }));
 vi.mock("./vcs", () => ({
-  vcsEnvironment: { init: { action: "init" }, pull: { action: "pull" }, status: () => "status" },
+  vcsEnvironment: {
+    init: { action: "init" },
+    pull: { action: "pull" },
+    preparePullRequestThread: { action: "prepare" },
+    status: () => "status",
+  },
   vcsActionManager: {
     stateAtom: () => "state",
     resetError: () => {},

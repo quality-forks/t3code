@@ -38,6 +38,7 @@ import {
   projectScriptTerminalInput,
   resolveProjectScripts,
 } from "@t3tools/shared/projectScripts";
+import { resolveVcsUnsupportedReason } from "@t3tools/shared/vcs";
 import { ScreenScrollView as ScrollView } from "../../components/ui/ScreenScrollView";
 import { useConnectionsReady } from "../../state/workspace";
 import { useEnvironmentShellReadiness } from "../../state/shell";
@@ -998,6 +999,7 @@ function ThreadRouteContent(
             worktreeSetup
               ? {
                   snapshot: worktreeSetup,
+                  unsupportedReason: resolveVcsUnsupportedReason(gitStatus.data),
                   turnStartedAt: setupTurnStartedAt,
                   working: composer.activeWorkStartedAt !== null,
                   turnStarted: setupTurnStartedAt !== null,

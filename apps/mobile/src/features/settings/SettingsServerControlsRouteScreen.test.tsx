@@ -1,21 +1,25 @@
 import { DEFAULT_SERVER_SETTINGS, type ServerSettingsPatch } from "@t3tools/contracts";
+import { GIT_VCS_TERMINOLOGY } from "@t3tools/shared/vcs";
 import { AsyncResult } from "effect/reactivity";
 import type { ReactNode } from "react";
 import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vite-plus/test";
 
-const { Children, mocks } = vi.hoisted(() => ({
-  Children: ({ children }: { children?: ReactNode }) => children,
-  mocks: {
-    branchNaming: { onChange: (_patch: ServerSettingsPatch) => {} },
-    updateSettings: vi.fn(),
-    alert: vi.fn(),
-    targets: [] as ReturnType<typeof environment>[],
-    readOnly: new Set<string>(),
-    projectSelected: false,
-  },
-}));
+const { Children, mocks } = vi.hoisted(() => {
+  Reflect.set(globalThis, "__DEV__", false);
+  return {
+    Children: ({ children }: { children?: ReactNode }) => children,
+    mocks: {
+      branchNaming: { onChange: (_patch: ServerSettingsPatch) => {} },
+      updateSettings: vi.fn(),
+      alert: vi.fn(),
+      targets: [] as ReturnType<typeof environment>[],
+      readOnly: new Set<string>(),
+      projectSelected: false,
+    },
+  };
+});
 
 vi.mock("react-native", () => ({
   View: Children,
@@ -48,6 +52,19 @@ vi.mock("./components/AutoSettleDaysField", () => ({ AutoSettleDaysField: () => 
 vi.mock("./components/SourceControlSignInSection", () => ({
   SourceControlSignInSection: () => null,
 }));
+vi.mock("expo", () => ({
+  CodedError: class CodedError extends Error {},
+  Platform: { OS: "android" },
+  UnavailabilityError: class UnavailabilityError extends Error {},
+  requireNativeModule: () => ({}),
+  requireNativeView: () => () => null,
+  requireOptionalNativeModule: () => null,
+}));
+vi.mock("expo-crypto", () => ({
+  getRandomBytes: () => new Uint8Array(32),
+}));
+vi.mock("expo-secure-store", () => ({}));
+vi.mock("expo-constants", () => ({ default: { expoConfig: null, manifest2: null } }));
 vi.mock("react-native-safe-area-context", () => ({ useSafeAreaInsets: () => ({ bottom: 0 }) }));
 vi.mock("@react-navigation/native", () => ({ useNavigation: () => ({}) }));
 vi.mock("../../state/session", () => ({
@@ -61,6 +78,7 @@ vi.mock("../../state/session", () => ({
 }));
 vi.mock("../../state/server", () => ({ serverEnvironment: { updateSettings: {} } }));
 vi.mock("../../state/environments", () => ({ useEnvironments: () => ({ environments: [] }) }));
+vi.mock("../../state/vcs", () => ({ useVcsTerminology: () => GIT_VCS_TERMINOLOGY }));
 vi.mock("../../state/use-atom-command", () => ({
   useAtomCommand: () => mocks.updateSettings,
 }));

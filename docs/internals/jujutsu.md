@@ -68,7 +68,7 @@ In a colocated repo every jj commit, `@` included, is a real Git object in
 
 - Snapshot and restore are jj only. Git's `HEAD` is not the working-copy change `@`; `git restore` or `git clean` bypasses jj's working-copy state even in a colocated secondary workspace.
 - Checkpoint diffs use Git plumbing between captured trees, including captured merges. Review diffs use Git plumbing for single-parent changes and `jj diff --git` for merged-parent baselines, retaining rename pairs in numstat metadata.
-- Hosting operations and per-thread merge-base config use the main workspace root and its `.git/config`. Local bookmarks are exported as Git branch refs in the colocated store. Background status fetches use Git with noninteractive authentication and write only `refs/t3/remotes/<encoded-remote>/*`, a namespace jj does not import. Fetch disables Git's configured remote-tracking ref mappings as well. Ahead counts use jj's nonempty changes above the Git merge bases; behind counts read the fetched Git objects. A background remote update therefore cannot move a tracked local bookmark or detach the workspace from it.
+- Hosting operations and per-thread merge-base config use the main workspace root and its `.git/config`. Local bookmarks are exported as Git branch refs in the colocated store. Explicit fetch, push and bookmark movement belong to jj, not Git checkout commands. Background status fetches use Git with noninteractive authentication and write only `refs/t3/remotes/<encoded-remote>/*`, a namespace jj does not import. Fetch disables Git's configured remote-tracking ref mappings as well. Ahead counts use jj's nonempty changes above the Git merge bases; behind counts read the fetched Git objects. A background remote update therefore cannot move a tracked local bookmark or detach the workspace from it.
 
 Hence the scope limit: a jj repo with no reachable `.git` is detected as jj and reported unusable,
 never quietly treated as Git. [`JjRepo.resolveJjRepoPaths`](../../apps/server/src/vcs/JjRepo.ts)
@@ -97,3 +97,75 @@ files excluded by snapshot size limits may be lost.
 `VcsDriverRegistry` selects jj for detected colocated repositories when jj is available and the
 repository preference permits it, with the Git fallback described above. Callers select behavior
 from the detected kind, while cleanup preserves `.jj` metadata whenever detection does not select jj.
+
+## Commit, push and pull preserve the user's change
+
+Managed workspaces use their own bookmark. Other workspaces first use the nearest eligible
+bookmarked descendant of `@`, then the nearest bookmarked ancestor. Multiple eligible descendant
+branches or names on one change are refused as ambiguous, never silently selected or redirected
+to `main`. Editing `main <- x1(@) <- x2[feat]` therefore commits and pushes `feat`, never `main`;
+bookmark movement retains the descendant tip instead of rewinding it to `@-`. Push-only and
+create-change-request actions refuse if the selected bookmark includes the current `@` anywhere
+in its ancestry: commit the change first. Commit-and-push remains supported mid-stack.
+
+Commit uses the typed message when nonblank, then the existing change description, then generated
+text. The selected text retains its exact trimmed formatting; a new bookmark derives its name from
+that same text. Push-only bookmark names use `@-`'s description, not dirty `@`.
+Conflicted working-copy changes are refused before commit or push. Pull refuses unpublished commits,
+including commits above the bookmark, but not dirty files alone. It rebases with
+`jj rebase -s @ -d <bookmark>` so unbookmarked descendants move with the change.
+Pull creates an empty working-copy child of the updated bookmark when editing its old pushed target,
+so the next edit cannot rewrite published work. An intentionally edited earlier ancestor stays in
+place instead of rebasing onto its own descendant. When a local amend rewrites the remote bookmark's
+target, Pull refuses with push guidance rather than rebasing the change onto its own predecessor.
+
+Publishing adds the remote before pushing. An actual first-push transport failure uses the same
+bounded hosting guidance as Git publishing, including the actual allocated remote name, and
+preserves that guidance through the public repository-service error. Local jj preflight refusals,
+such as an undescribed change, retain their actionable explanation instead. The remote remains
+for retry. Git's error mapper and publishing implementation are unchanged.
+
+## Unusable is not Git
+
+Missing `jj`, older than 0.46.0 ([`JJ_MINIMUM_VERSION`](../../apps/server/src/vcs/JjAvailability.ts)), or not
+colocated: detection still says jj. Falling back to Git would write a Git worktree into a jj repo.
+Every op instead fails with a named reason that reaches clients as
+`VcsStatusLocalResult.vcs.unsupportedReason`. Web and mobile show the reason and disable
+source-control actions, Changes, bookmark/workspace selection and creation, and queued setup
+dispatch. Already-open dialogs recheck support before dispatch. Missing or loading status alone
+does not disable otherwise available controls. Mobile can leave an unsupported saved or default
+workspace selection for local chat; only entering workspace mode requires source-control support.
+
+Fresh drafts keep main's controls and subscription keys; they do not add a status stream to predict
+server support. Workspace creation refuses before allocating a workspace, and first send checks
+usability before creating a thread, claiming attachments, or allocating managed folders. Both clients
+show the existing unsupported reason from the refusal and retain the draft for correction. The
+first-send check uses the jj-only facade, so automatic refusal stays dormant until activation.
+
+For an existing non-colocated repository, run `jj git colocation enable` in its main workspace.
+Publishing checks detection and usability before allocating a hosted repository; while detection
+is dormant, Git publishing keeps its original order and performs no jj probe.
+
+Client action rules live in `packages/client-runtime/src/state/gitActions.ts`. The explicit surface
+policy preserves web publishing and dirty-tree push behavior and mobile's clean-tree push rule,
+View PR entry and no-publishing behavior. Shared terminology objects supply system-specific copy;
+the web terminology subscription selects their stable identities instead of every status refresh.
+Selected-thread mobile controls select stable terminology, kind and unsupported-reason values from
+the existing full-status stream rather than opening a second local-status stream for the same checkout.
+
+Checkpoints are the exception. `checkpointsUsable` answers `false` there so
+[`CheckpointStore.supportsCheckpoints`](../../apps/server/src/checkpointing/CheckpointStore.ts) skips
+capture silently, same as a directory with no repo, instead of writing a failed-capture activity into
+every turn.
+
+## Workspace cleanup
+
+An existing Git worktree (`.git` file, no `.jj`) keeps resolving as Git even when its project becomes colocated. Workspace removal dispatches from the target path first, with the project kind as a fallback when that path is missing or unclassifiable. Pruning routes by project kind. Idle jj workspaces use the shared cleanup rules; a tree-empty working-copy change is disposable only when its description is empty. Background fetch writes only `refs/t3/remotes`, never moving or conflicting tracked local bookmarks; subsequent candidates use those same refreshed refs. Cleanup snapshots tracked changes without auto-tracking new files, then separately inspects untracked and policy-relevant ignored files, including oversized files. Any `.jj` marker is preserved whenever detection does not select jj. Under the workspace lease, removal repeats the idle inspection, renames the workspace into a same-parent holding directory, and verifies its disk against a private Git index and its jj working-copy identity before forgetting it. Tracked edits are restored rather than snapshotted onto a stranded change. Successful removal forgets the workspace, prunes colocated Git registrations, invalidates caches and deletes the checked holding directory. Restoration failures preserve the holding directory instead of deleting unchecked files. Open terminals and live provider sessions remain blockers because existing open file descriptors can write even after a rename.
+
+Cleanup's holding interval and repo-wide jj pruning share a semaphore, so a normal resume cannot mistake a temporarily moved workspace for a missing one. Rename and rollback installation are interruption-masked. Ambiguous forget failures recheck registration before restoring; recovery failures are ordinary per-entry failures carrying the preserved directory, not sweep-killing defects.
+
+Cleanup never runs stale-workspace recovery: stale candidates are kept as `"workspace is stale"`
+without rewriting their files. The open-thread status poller's stale recovery is unchanged.
+With `keepWhen: "tracked-changes"`, ignored and untracked files are cleared in the holding directory
+only after final tracked-edit and description checks pass; refused removal preserves those files.
+`uncommitted-changes` keeps its existing file-preservation behavior.
