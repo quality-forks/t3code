@@ -7,6 +7,7 @@
 A missing directory returns no marker root; it cannot climb into an unrelated repository above it.
 [`VcsProjectConfig`](../../apps/server/src/vcs/VcsProjectConfig.ts) resolves the repository's
 `.t3code/vcs.json` preference before driver detection.
+An existing `jj` pin disables fallback; a `git` pin selects Git without a notice.
 
 ## `git.abandon-unreachable-commits=false` on every command we run
 
@@ -97,6 +98,11 @@ The registry selects jj before colocated Git and respects nested Git repository 
 Jujutsu 0.46 or newer and a colocated main repository are required. An unusable jj repository
 reports its refusal when explicitly pinned to jj. Automatic detection falls back to a usable Git
 checkout at the same real root when jj is unavailable or unsupported, with a dismissible notice.
+Web and mobile render this notice in the thread notice area, retaining Git vocabulary and actions.
+Dismissal persists per environment and checkout; changed notice text or reason makes it visible again.
+Unsupported jj retains its reason and blocks affected source-control operations, while local chat
+remains available. A jj repository initialized inside a linked Git worktree also falls back at the
+same root, because that layout cannot safely use the native jj workspace driver.
 
 Automatic cleanup selects the shared disk inspector's blanket gitlink refusal policy, even for uninitialized submodules; manual removal selects the absent-or-empty policy.
 
@@ -112,6 +118,20 @@ unsnapshotted files; persistent failures retain jj's diagnostic.
 
 An explicitly remote-qualified workspace base uses that remote bookmark, even when
 a same-named local bookmark contains unpublished commits. Tracking does not replace the base.
+
+Workspace fan-out offers the single non-root parent `@-` as **Current change** only when the
+current bookmark is a strict ancestor of that parent, or no current bookmark resolves. A bookmark
+on the parent, on `@`, or on a descendant already contains that work and suppresses the entry.
+Parent metadata reuses the existing `@` read; `refName` still names the bookmark used for writes
+and synchronization. Merge working copies and root parents have no committed base. Web and
+mobile default to Current change when no base was explicitly picked and starting from remote
+is off. An explicit pick wins; remote starts leave the entry available. Handoff uses the same rule.
+
+The wire value is the full change id so a rewrite between selection and send follows the change.
+The jj driver requires exactly one visible revision when resolving that id; missing and divergent
+changes fail rather than falling back. Workflow existence checks and workspace creation resolve
+it through jj, remote-base lookup keeps it local, and review-base config retains it for jj diff
+resolution. New workspaces keep an empty `@` above the selected base, excluding working-copy edits.
 
 Bookmark policy checks literal names, without stripping `refs/`, `heads/`, `remotes/` or remote prefixes. Private `t3code/import/` bookmarks are hidden from listings and automatic default/nearest-bookmark selection. Switch and workspace requests refuse that literal prefix, but explicit revision selection (including review refs and other spellings) is not a protection boundary: the same commit is accessible by id. Ordinary remote selection refuses to create a reserved local bookmark; choose another local name instead. Existing local PR aliases remain selectable, and controlled PR import may create and track them. Remote-qualified workspace bases such as `origin/main` retain their existing remote resolution.
 
@@ -129,11 +149,17 @@ the location of any remaining files without guaranteeing full preservation.
 See [`JjStorageCleanup.ts`](../../apps/server/src/jj/JjStorageCleanup.ts)
 and [`storageCleanup.ts`](../../apps/server/src/storageCleanup.ts).
 
+Jujutsu does not run Git hooks. The clients share action rules and vocabulary through
+[`gitActions.ts`](../../packages/client-runtime/src/state/gitActions.ts) and
+[`vcs.ts`](../../packages/shared/src/vcs.ts); hosting PR/MR names remain independent of those terms.
+
 
 ## Commit, push and pull preserve the user's change
 
 Managed workspaces use their own bookmark. Other workspaces first use the nearest eligible
-bookmarked descendant of `@`, then the nearest bookmarked ancestor. Multiple eligible descendant
+bookmarked descendant of `@`, then the nearest bookmarked ancestor. A bookmark owned by another
+T3-managed workspace is not eligible and does not hide an eligible bookmark beneath it, so
+fan-out from a checkout leaves that checkout's bookmark unchanged. Multiple eligible descendant
 branches or names on one change are refused as ambiguous, never silently selected or redirected
 to `main`. Editing `main <- x1(@) <- x2[feat]` therefore commits and pushes `feat`, never `main`;
 bookmark movement retains the descendant tip instead of rewinding it to `@-`. Push-only and
