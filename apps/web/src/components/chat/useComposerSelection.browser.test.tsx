@@ -90,6 +90,7 @@ function Picker(props: {
     providerStatuses: providers,
     lockedProvider: null,
     supportsProviderSwitchingViaHandoff: true,
+    vcsActionsSupported: true,
     multipleModelSelections: null,
     runtimeMode: "full-access",
     isLocalDraftThread: false,

@@ -1,3 +1,4 @@
+import { DEFAULT_VCS_TERMINOLOGY, type VcsTerminology } from "@t3tools/shared/vcs";
 import type { ContextMenuItem } from "@t3tools/contracts";
 import type { SnoozePreset } from "@t3tools/client-runtime/state/thread-settled";
 import { msg } from "gt-react";
@@ -41,6 +42,7 @@ export type DraftActionMenuId =
 
 export function buildDraftActionMenuItems(
   options: {
+    readonly terminology?: VcsTerminology;
     readonly hasPath: boolean;
     readonly hasBranch: boolean;
     readonly hasProject: boolean;
@@ -67,7 +69,10 @@ export function buildDraftActionMenuItems(
           ? [
               {
                 id: "copy-branch" as const,
-                label: resolve(msg("Branch", { $context: "copy the git branch name" })),
+                label:
+                  (options.terminology ?? DEFAULT_VCS_TERMINOLOGY).kind === "git"
+                    ? resolve(msg("Branch", { $context: "copy the git branch name" }))
+                    : (options.terminology ?? DEFAULT_VCS_TERMINOLOGY).refNounTitle,
                 icon: "git-branch",
               },
             ]
@@ -98,6 +103,7 @@ export interface ThreadActionMenuState {
   readonly canFind?: boolean;
   /** False where no inline title editor is rendered, such as sidebar search results. */
   readonly canRename?: boolean;
+  readonly terminology?: VcsTerminology;
   readonly branch: string | null;
   readonly projectFilter: {
     readonly label: string;
@@ -280,7 +286,10 @@ export function buildThreadActionMenuItems(
           ? [
               {
                 id: "copy-branch" as const,
-                label: resolve(msg("Branch", { $context: "copy the git branch name" })),
+                label:
+                  (state.terminology ?? DEFAULT_VCS_TERMINOLOGY).kind === "git"
+                    ? resolve(msg("Branch", { $context: "copy the git branch name" }))
+                    : (state.terminology ?? DEFAULT_VCS_TERMINOLOGY).refNounTitle,
                 icon: "git-branch",
               },
             ]

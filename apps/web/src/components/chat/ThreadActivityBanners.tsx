@@ -1,3 +1,4 @@
+import { msg as vcsMsg } from "gt-react";
 import type {
   EnvironmentId,
   OrchestrationV2PendingBackgroundTask,
@@ -304,6 +305,7 @@ export function backgroundWorkNowItem(
 /** The local checkout moved off the branch this thread last ran on. */
 export function branchMismatchBannerItem(
   input: {
+    readonly terminology: import("@t3tools/shared/vcs").VcsTerminology;
     readonly mismatchKey: string;
     readonly mismatch: { readonly threadBranch: string; readonly currentBranch: string };
     readonly restoreDisabled: boolean;
@@ -337,18 +339,41 @@ export function branchMismatchBannerItem(
     icon: <GitBranchIcon />,
     title: (
       <span className="flex min-w-0 items-baseline gap-1.5">
-        <T>
-          <span className="shrink-0 font-normal text-muted-foreground">Branch changed from</span>
-          <Var>{branchTooltip}</Var>
-        </T>
+        <>
+          {input.terminology.kind === "git" ? (
+            <T>
+              <span className="shrink-0 font-normal text-muted-foreground">
+                Branch changed from
+              </span>
+              <Var>{branchTooltip}</Var>
+            </T>
+          ) : (
+            <T>
+              <span className="shrink-0 font-normal text-muted-foreground">
+                <Var>{input.terminology.refNounTitle}</Var> changed from
+              </span>
+              <Var>{branchTooltip}</Var>
+            </T>
+          )}
+        </>
       </span>
     ),
     actions: (
       <Button size="xs" variant="ghost" disabled={input.restoreDisabled} onClick={input.onRestore}>
-        {input.restoring ? <T>Restoring...</T> : <T>Restore branch</T>}
+        {input.restoring ? (
+          <T>Restoring...</T>
+        ) : input.terminology.kind === "git" ? (
+          <T>Restore branch</T>
+        ) : (
+          resolve(vcsMsg("Restore {value0}", { value0: input.terminology.refNoun }))
+        )}
       </Button>
     ),
-    dismissLabel: resolve(msg("Dismiss branch change notice")),
+    dismissLabel: resolve(
+      input.terminology.kind === "git"
+        ? vcsMsg("Dismiss branch change notice")
+        : vcsMsg("Dismiss {value0} change notice", { value0: input.terminology.refNoun }),
+    ),
     onDismiss: input.onDismiss,
   };
 }

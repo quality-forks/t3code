@@ -1,3 +1,6 @@
+import { Var } from "gt-react";
+import { useContext } from "react";
+import { VcsTerminologyContext } from "../../state/vcs";
 import type {
   EnvironmentId,
   PullRequestAction,
@@ -97,6 +100,7 @@ export function PullRequestCheckoutMenu({
   term: ChangeRequestTermKind;
 }) {
   const gt = useGT();
+  const vcsTerminology = useContext(VcsTerminologyContext);
   return (
     <Menu>
       <Tooltip>
@@ -136,7 +140,15 @@ export function PullRequestCheckoutMenu({
           <GitBranchIcon className="mt-1 size-3.5 shrink-0 self-start" />
           <span className="flex min-w-0 flex-col">
             <span>
-              <T>In a separate worktree</T>
+              <>
+                {vcsTerminology.kind === "git" ? (
+                  <T>In a separate worktree</T>
+                ) : (
+                  <T>
+                    In a separate <Var>{vcsTerminology.workspaceNoun}</Var>
+                  </T>
+                )}
+              </>
             </span>
             <span className="text-xs text-muted-foreground">
               <T>Its own folder and thread. Nothing you have open moves.</T>
@@ -150,7 +162,15 @@ export function PullRequestCheckoutMenu({
               <T>In this repository</T>
             </span>
             <span className="text-xs text-muted-foreground">
-              <T>Switches the branch you are working in.</T>
+              <>
+                {vcsTerminology.kind === "git" ? (
+                  <T>Switches the branch you are working in.</T>
+                ) : (
+                  <T>
+                    Switches the <Var>{vcsTerminology.refNoun}</Var> you are working in.
+                  </T>
+                )}
+              </>
             </span>
           </span>
         </MenuItem>

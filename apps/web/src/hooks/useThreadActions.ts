@@ -1,3 +1,5 @@
+import { m as vcsMessage } from "~/i18n/messages";
+import { msg as vcsMsg } from "gt-react";
 import { thrownErrorMessage } from "@t3tools/client-runtime/errors";
 import {
   parseScopedThreadKey,
@@ -33,7 +35,7 @@ import { isScratchProject } from "@t3tools/client-runtime/state/projects";
 import { orchestrationEnvironment } from "../state/orchestration";
 import { projectEnvironment } from "../state/projects";
 import { threadEnvironment } from "../state/threads";
-import { vcsEnvironment } from "../state/vcs";
+import { readVcsTerminology, vcsEnvironment } from "../state/vcs";
 import { useNewThreadHandler } from "./useHandleNewThread";
 import { refreshArchivedThreadsForEnvironment } from "../lib/archivedThreadsState";
 import { releaseComposerDraftUploads } from "../lib/composerDraftUploads";
@@ -578,6 +580,7 @@ export function useThreadActions() {
         sessionResult._tag === "Success" &&
         sessionGrantsScope(sessionResult.value, AuthSourceControlWriteScope);
     }
+    const terminology = readVcsTerminology(threadRef.environmentId, orphanedWorktreePath);
     let shouldDeleteWorktree = false;
     const environmentSettings = environmentConfig?.settings;
     const automaticWorktreeCleanup = environmentSettings
@@ -587,10 +590,20 @@ export function useThreadActions() {
       const confirmationResult = await settlePromise(() =>
         localApi.dialogs.confirm(
           [
-            m(msg("This thread is the only one linked to this worktree:")),
+            vcsMessage(
+              terminology.kind === "git"
+                ? vcsMsg("This thread is the only one linked to this worktree:")
+                : vcsMsg("This thread is the only one linked to this {value0}:", {
+                    value0: terminology.workspaceNoun,
+                  }),
+            ),
             displayWorktreePath ?? orphanedWorktreePath,
             "",
-            m(msg("Delete the worktree too?")),
+            vcsMessage(
+              terminology.kind === "git"
+                ? vcsMsg("Delete the worktree too?")
+                : vcsMsg("Delete the {value0} too?", { value0: terminology.workspaceNoun }),
+            ),
           ].join("\n"),
           { variant: "destructive" },
         ),
@@ -687,7 +700,13 @@ export function useThreadActions() {
       : AsyncResult.failure(
           Cause.fail(
             new EnvironmentAuthorizationError({
-              message: m(msg("This connection can no longer remove worktrees.")),
+              message: vcsMessage(
+                terminology.kind === "git"
+                  ? vcsMsg("This connection can no longer remove worktrees.")
+                  : vcsMsg("This connection can no longer remove {value0}.", {
+                      value0: terminology.workspaceNounPlural,
+                    }),
+              ),
               requiredScope: AuthSourceControlWriteScope,
             }),
           ),
@@ -719,8 +738,19 @@ export function useThreadActions() {
         stackedThreadToast({
           type: "error",
           title: removalFailed
-            ? m(msg("Failed to delete worktree"))
-            : m(msg("Worktree deleted, but Git status refresh failed")),
+            ? vcsMessage(
+                terminology.kind === "git"
+                  ? vcsMsg("Failed to delete worktree")
+                  : vcsMsg("Failed to delete {value0}", { value0: terminology.workspaceNoun }),
+              )
+            : vcsMessage(
+                terminology.kind === "git"
+                  ? vcsMsg("Worktree deleted, but Git status refresh failed")
+                  : vcsMsg("{value0} deleted, but {value1} status refresh failed", {
+                      value0: terminology.workspaceNounTitle,
+                      value1: terminology.systemName,
+                    }),
+              ),
           description: removalFailed
             ? m(
                 msg("Could not remove {path}. {message}", {

@@ -1,5 +1,6 @@
+import { useMessages as useVcsMessages } from "gt-react";
+import { msg as vcsMsg } from "gt-react";
 import { DEFAULT_UNIFIED_SETTINGS } from "@t3tools/contracts/settings";
-import { useGT } from "gt-react";
 
 import { AdvancedSettings } from "./AdvancedSettings";
 import { BranchNamingSettings } from "./BranchNamingSettings";
@@ -13,12 +14,16 @@ import {
   SettingsSection,
 } from "./settingsLayout";
 import { useSearchableSetting } from "./settingsSearch";
+import { useSettingsVcsTerminology } from "./useSettingsVcsTerminology";
+
 import { WorktreeCleanupSection, WorktreesDirectoryRow } from "./StorageSettings";
 import { useScopedSettings, useUpdateScopedSettings } from "./useScopedSettings";
 
 function StartFromRemoteRow() {
+  const vcsMessage = useVcsMessages();
   const gt = useGT();
   const searchableSetting = useSearchableSetting();
+  const terminology = useSettingsVcsTerminology();
   const settings = useScopedSettings();
   const updateSettings = useUpdateScopedSettings();
   return (
@@ -26,14 +31,31 @@ function StartFromRemoteRow() {
       serverScoped
       settingKeys={["newWorktreesStartFromOrigin"]}
       {...searchableSetting("start-from-origin")}
-      description={gt(
-        "Uses the latest commit of the base branch’s tracked remote branch, even if its name differs. Otherwise uses the same-named branch on origin. Uses your local branch if that remote branch is missing.",
-      )}
+      description={
+        terminology.kind === "git"
+          ? gt(
+              "Uses the latest commit of the base branch’s tracked remote branch, even if its name differs. Otherwise uses the same-named branch on origin. Uses your local branch if that remote branch is missing.",
+            )
+          : vcsMessage(
+              vcsMsg(
+                "Uses the latest commit of the base {value0}’s tracked remote {value0}, even if its name differs. Otherwise uses the same-named {value0} on origin. Uses your local {value0} if that remote {value0} is missing.",
+                { value0: terminology.refNoun },
+              ),
+            )
+      }
       resetAction={
         settings.newWorktreesStartFromOrigin !==
         DEFAULT_UNIFIED_SETTINGS.newWorktreesStartFromOrigin ? (
           <SettingResetButton
-            ariaLabel={gt("Reset new worktrees start from remote to default")}
+            ariaLabel={
+              terminology.kind === "git"
+                ? gt("Reset new worktrees start from remote to default")
+                : vcsMessage(
+                    vcsMsg("new {value0} start from remote", {
+                      value0: terminology.workspaceNounPlural,
+                    }),
+                  )
+            }
             onClick={() =>
               updateSettings({
                 newWorktreesStartFromOrigin: DEFAULT_UNIFIED_SETTINGS.newWorktreesStartFromOrigin,
@@ -49,7 +71,15 @@ function StartFromRemoteRow() {
           onCheckedChange={(checked) =>
             updateSettings({ newWorktreesStartFromOrigin: Boolean(checked) })
           }
-          aria-label={gt("Start new worktrees from remote by default")}
+          aria-label={
+            terminology.kind === "git"
+              ? gt("Start new worktrees from remote by default")
+              : vcsMessage(
+                  vcsMsg("Start new {value0} from remote by default", {
+                    value0: terminology.workspaceNounPlural,
+                  }),
+                )
+          }
         />
       }
     />
@@ -59,6 +89,7 @@ function StartFromRemoteRow() {
 export function WorktreesSettingsPanel() {
   const gt = useGT();
   const searchableSetting = useSearchableSetting();
+  const terminology = useSettingsVcsTerminology();
   const { scope } = useSettingsScope();
   const isProjectScope = scope.kind === "project" || scope.kind === "checkout";
 
@@ -74,10 +105,11 @@ export function WorktreesSettingsPanel() {
           <WorktreeSubmodulesRow />
         </AdvancedSettings>
       </SettingsSection>
-      <SettingsSection id="worktree-branches" title={gt("Branches")}>
+      <SettingsSection id="worktree-branches" title={terminology.refNounPluralTitle}>
         <BranchNamingSettings />
       </SettingsSection>
       <WorktreeCleanupSection />
     </SettingsPageContainer>
   );
 }
+import { useGT } from "gt-react";

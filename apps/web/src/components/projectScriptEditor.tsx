@@ -1,4 +1,5 @@
 import { thrownErrorMessage } from "@t3tools/client-runtime/errors";
+import { VcsTerminologyContext } from "../state/vcs";
 import {
   AuthOrchestrationOperateScope,
   AuthSettingsWriteScope,
@@ -281,6 +282,7 @@ function ProjectScriptEditorForm({
 }) {
   const gt = useGT();
   const m = useMessages();
+  const terminology = React.useContext(VcsTerminologyContext);
   const canEditActions = useEnvironmentScope(environmentId, editScope);
   const canWriteSettings = useEnvironmentScope(environmentId, AuthSettingsWriteScope);
   const formId = React.useId();
@@ -528,13 +530,26 @@ function ProjectScriptEditorForm({
             </div>
             <label className="flex items-center justify-between gap-3 rounded-md border border-border/70 px-3 py-2 text-sm dark:border-transparent dark:bg-white/[0.035]">
               <span>
-                <T>Run automatically on worktree creation</T>
+                <>
+                  {terminology.kind === "git" ? (
+                    <T>Run automatically on worktree creation</T>
+                  ) : (
+                    <T>
+                      Run automatically on <Var>{terminology.workspaceNoun}</Var> creation
+                    </T>
+                  )}
+                </>
               </span>
               <Switch
                 checked={runOnWorktreeCreate}
                 onCheckedChange={(checked) => setRunOnWorktreeCreate(Boolean(checked))}
               />
             </label>
+            {terminology.hooksNotice ? (
+              <p className="text-xs text-muted-foreground">
+                {terminology.hooksNotice} <T>These actions are run by T3 Code.</T>
+              </p>
+            ) : null}
             <label
               className={`flex items-center justify-between gap-3 rounded-md border border-border/70 px-3 py-2 text-sm dark:border-transparent dark:bg-white/[0.035] ${
                 runOnWorktreeCreate ? "" : "opacity-60"
@@ -551,7 +566,16 @@ function ProjectScriptEditorForm({
             </label>
             <label className="flex items-center justify-between gap-3 rounded-md border border-border/70 px-3 py-2 text-sm dark:border-transparent dark:bg-white/[0.035]">
               <span>
-                <T>Run in the thread's worktree when the thread settles</T>
+                <>
+                  {terminology.kind === "git" ? (
+                    <T>Run in the thread's worktree when the thread settles</T>
+                  ) : (
+                    <T>
+                      Run in the thread&apos;s <Var>{terminology.workspaceNoun}</Var> when the
+                      thread settles
+                    </T>
+                  )}
+                </>
               </span>
               <Switch
                 checked={runOnSettle}

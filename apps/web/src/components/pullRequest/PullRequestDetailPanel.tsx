@@ -1,3 +1,6 @@
+import { useMessages as useVcsMessages } from "gt-react";
+import { msg as vcsMsg } from "gt-react";
+import { VcsTerminologyContext, useVcsTerminology } from "../../state/vcs";
 import {
   parsePullRequestAnchor,
   pullRequestLinkCommit,
@@ -386,6 +389,7 @@ export function PullRequestDetailPanel({
   initialTab?: PullRequestDetailTab;
   onTabChange?: ((tab: PullRequestDetailTab) => void) | undefined;
 }) {
+  const vcsMessage = useVcsMessages();
   const gt = useGT();
   const resolve = useMessages();
   const environmentConfigs = useServerConfigs();
@@ -600,7 +604,7 @@ export function PullRequestDetailPanel({
   const keybindings = useAtomValue(primaryServerKeybindingsAtom);
   const { copyToClipboard: copyReference } = useCopyToClipboard<string>({
     target: {
-      target: `${terminology.singular} reference`,
+      target: vcsMessage(vcsMsg("{value0} reference", { value0: terminology.singular })),
       unavailableMessage: msg(
         "Clipboard API is unavailable while copying {term, select, mr {merge request} cr {change request} other {pull request}} reference.",
         { term: changeRequestTermKind(terminology) },
@@ -850,6 +854,7 @@ export function PullRequestDetailPanel({
   const actingEnvironmentId = acting?.environmentId ?? environmentId;
   const checkoutRoot =
     acting?.workspaceRoot ?? detail?.workspaceRoot ?? project?.workspaceRoot ?? null;
+  const vcsTerminology = useVcsTerminology(actingEnvironmentId, checkoutRoot);
   const canOperateThread = useEnvironmentScope(actingEnvironmentId, AuthOrchestrationOperateScope);
   const prepareThread = usePreparePullRequestThreadAction({
     environmentId: actingEnvironmentId,
@@ -1119,6 +1124,7 @@ export function PullRequestDetailPanel({
         ),
         description: checkoutFailureDescription(
           isAtomCommandInterrupted(prepared) ? undefined : squashAtomCommandFailure(prepared),
+          vcsTerminology,
         ),
       });
       return;
@@ -1138,10 +1144,15 @@ export function PullRequestDetailPanel({
         type: "error",
         title: m(msg("Checked out, but the thread stayed where it was")),
         description: m(
-          msg(
-            "The checkout is ready on `{branch}`. Point a thread at it from the branch picker, then ask again.",
-            { branch: prepared.value.branch },
-          ),
+          vcsTerminology.kind === "git"
+            ? msg(
+                "The checkout is ready on `{branch}`. Point a thread at it from the branch picker, then ask again.",
+                { branch: prepared.value.branch },
+              )
+            : msg(
+                "The checkout is ready on `{branch}`. Point a thread at it from the {ref} picker, then ask again.",
+                { branch: prepared.value.branch, ref: vcsTerminology.refNoun },
+              ),
         ),
       });
       return;
@@ -1164,20 +1175,36 @@ export function PullRequestDetailPanel({
               description:
                 mode === "local"
                   ? m(
-                      msg(
-                        "This repository is on the {term, select, mr {merge request} cr {change request} other {pull request}}'s branch, with a thread open on it.",
-                        {
-                          term: changeRequestTermKind(terminology),
-                        },
-                      ),
+                      vcsTerminology.kind === "git"
+                        ? msg(
+                            "This repository is on the {term, select, mr {merge request} cr {change request} other {pull request}}'s branch, with a thread open on it.",
+                            {
+                              term: changeRequestTermKind(terminology),
+                            },
+                          )
+                        : msg(
+                            "This repository is on the {term, select, mr {merge request} cr {change request} other {pull request}}'s {ref}, with a thread open on it.",
+                            {
+                              term: changeRequestTermKind(terminology),
+                              ref: vcsTerminology.refNoun,
+                            },
+                          ),
                     )
                   : m(
-                      msg(
-                        "The {term, select, mr {merge request} cr {change request} other {pull request}} is in its own worktree, with a thread open on it.",
-                        {
-                          term: changeRequestTermKind(terminology),
-                        },
-                      ),
+                      vcsTerminology.kind === "git"
+                        ? msg(
+                            "The {term, select, mr {merge request} cr {change request} other {pull request}} is in its own worktree, with a thread open on it.",
+                            {
+                              term: changeRequestTermKind(terminology),
+                            },
+                          )
+                        : msg(
+                            "The {term, select, mr {merge request} cr {change request} other {pull request}} is in its own {workspace}, with a thread open on it.",
+                            {
+                              term: changeRequestTermKind(terminology),
+                              workspace: vcsTerminology.workspaceNoun,
+                            },
+                          ),
                     ),
             }
           : offHeadPullRequestCheckoutToast(terminology),
@@ -1332,6 +1359,7 @@ export function PullRequestDetailPanel({
         isDraft: detail.isDraft,
         finding,
         inThisThread: attachTarget !== null,
+        refNoun: vcsTerminology.refNoun,
       }),
     );
   };
@@ -1353,6 +1381,7 @@ export function PullRequestDetailPanel({
         checks: checksStale ? [] : detail.checks,
         commentsTruncated: detail.commentsTruncated,
         inThisThread: attachTarget !== null,
+        refNoun: vcsTerminology.refNoun,
       }),
     );
   };
@@ -1366,6 +1395,7 @@ export function PullRequestDetailPanel({
         headBranch: handoffSummary.headBranch,
         baseBranch: handoffSummary.baseBranch,
         inThisThread: attachTarget !== null,
+        refNoun: vcsTerminology.refNoun,
       }),
     });
   };
@@ -1468,13 +1498,23 @@ export function PullRequestDetailPanel({
       [
         m(msg("Delete branch {branch}?", { branch: detail.headBranch })),
         m(
-          msg(
-            "This deletes {branch} from {repository}. Local branches and worktrees are not changed.",
-            {
-              branch: detail.headBranch,
-              repository: detail.headRepositoryNameWithOwner ?? detail.repository,
-            },
-          ),
+          vcsTerminology.kind === "git"
+            ? msg(
+                "This deletes {branch} from {repository}. Local branches and worktrees are not changed.",
+                {
+                  branch: detail.headBranch,
+                  repository: detail.headRepositoryNameWithOwner ?? detail.repository,
+                },
+              )
+            : msg(
+                "This deletes {branch} from {repository}. Local {refs} and {workspaces} are not changed.",
+                {
+                  branch: detail.headBranch,
+                  repository: detail.headRepositoryNameWithOwner ?? detail.repository,
+                  refs: vcsTerminology.refNounPlural,
+                  workspaces: vcsTerminology.workspaceNounPlural,
+                },
+              ),
         ),
       ].join("\n"),
       { variant: "destructive" },
@@ -1499,17 +1539,19 @@ export function PullRequestDetailPanel({
 
   const checkoutControl =
     context === "page" ? (
-      <PullRequestCheckoutMenu
-        term={changeRequestTermKind(terminology)}
-        handoff={handoff}
-        checkoutRoot={checkoutRoot}
-        canPrepareWorktree={canPrepareWorktree}
-        canCheckoutHere={prepareThread.isAllowed}
-        onCheckout={startCheckout}
-        pickableEnvironments={pickableEnvironments}
-        actingEnvironmentId={actingEnvironmentId}
-        onActingEnvironmentChange={selectActingEnvironment}
-      />
+      <VcsTerminologyContext value={vcsTerminology}>
+        <PullRequestCheckoutMenu
+          term={changeRequestTermKind(terminology)}
+          handoff={handoff}
+          checkoutRoot={checkoutRoot}
+          canPrepareWorktree={canPrepareWorktree}
+          canCheckoutHere={prepareThread.isAllowed}
+          onCheckout={startCheckout}
+          pickableEnvironments={pickableEnvironments}
+          actingEnvironmentId={actingEnvironmentId}
+          onActingEnvironmentChange={selectActingEnvironment}
+        />
+      </VcsTerminologyContext>
     ) : null;
 
   const resolveConflictsControl = (
@@ -1832,7 +1874,9 @@ export function PullRequestDetailPanel({
                       key={checkoutCommand}
                       value={checkoutCommand}
                       target={{
-                        target: `${terminology.singular} checkout command`,
+                        target: vcsMessage(
+                          vcsMsg("{value0} checkout command", { value0: terminology.singular }),
+                        ),
                         unavailableMessage: msg(
                           "Clipboard API is unavailable while copying {term, select, mr {merge request} cr {change request} other {pull request}} checkout command.",
                           { term: changeRequestTermKind(terminology) },

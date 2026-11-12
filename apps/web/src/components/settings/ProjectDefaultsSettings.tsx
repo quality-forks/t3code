@@ -1,4 +1,7 @@
+import { useMessages as useVcsMessages } from "gt-react";
+import { msg as vcsMsg } from "gt-react";
 import { managedRuntimeModeDenial } from "@t3tools/client-runtime/contract-labels";
+import { useSettingsVcsTerminology } from "./useSettingsVcsTerminology";
 import {
   DEFAULT_SERVER_SETTINGS,
   type ModelSelection,
@@ -50,9 +53,11 @@ function isWorktreeSubmodules(value: string | null): value is WorktreeSubmodules
 }
 
 export function ProjectDefaultsSettings({ category }: { category: ProjectSettingsCategory }) {
+  const vcsMessage = useVcsMessages();
   const searchableSetting = useSearchableSetting();
   const gt = useGT();
   const m = useMessages();
+  const terminology = useSettingsVcsTerminology();
   const { scope, target, targets, connectedEnvironments } = useSettingsScope();
   const settings = useScopedSettings();
   const clientSettings = useClientSettings();
@@ -253,7 +258,7 @@ export function ProjectDefaultsSettings({ category }: { category: ProjectSetting
             <SelectValue>
               {(value: string | null) =>
                 value === "local" || value === "worktree"
-                  ? resolveEnvModeLabel(value, m)
+                  ? resolveEnvModeLabel(value, terminology, vcsMessage)
                   : unavailable
                     ? gt("Unavailable", { $context: "setting value cannot be read" })
                     : gt("Mixed", { $context: "values differ across targets" })
@@ -261,8 +266,12 @@ export function ProjectDefaultsSettings({ category }: { category: ProjectSetting
             </SelectValue>
           </SelectTrigger>
           <SelectPopup align="end" alignItemWithTrigger={false}>
-            <SelectItem value="local">{resolveEnvModeLabel("local", m)}</SelectItem>
-            <SelectItem value="worktree">{resolveEnvModeLabel("worktree", m)}</SelectItem>
+            <SelectItem value="local">
+              {resolveEnvModeLabel("local", terminology, vcsMessage)}
+            </SelectItem>
+            <SelectItem value="worktree">
+              {resolveEnvModeLabel("worktree", terminology, vcsMessage)}
+            </SelectItem>
           </SelectPopup>
         </Select>
       }
@@ -449,12 +458,20 @@ export function ProjectDefaultsSettings({ category }: { category: ProjectSetting
             title={gt("Automatically pull")}
             description={
               isProjectScope
-                ? gt(
-                    "Keeps this project's default branch current when the checkout has no local changes or commits.",
-                  )
-                : gt(
-                    "Keeps the default branch current when the checkout has no local changes or commits. Projects can override it.",
-                  )
+                ? terminology.kind === "git"
+                  ? gt(
+                      "Keeps this project's default branch current when the checkout has no local changes or commits.",
+                    )
+                  : gt(
+                      "Keeps this project’s default Git branch current when the checkout has no local changes or commits. Jujutsu repositories are not pulled automatically.",
+                    )
+                : terminology.kind === "git"
+                  ? gt(
+                      "Keeps the default branch current when the checkout has no local changes or commits. Projects can override it.",
+                    )
+                  : gt(
+                      "Keeps the default Git branch current when the checkout has no local changes or commits. Projects can override it. Jujutsu repositories are not pulled automatically.",
+                    )
             }
             resetAction={
               settings.defaultAutoPull ? (
@@ -565,7 +582,9 @@ export function ProjectDefaultsSettings({ category }: { category: ProjectSetting
 }
 
 export function WorktreeSubmodulesRow() {
+  const vcsMessage = useVcsMessages();
   const searchableSetting = useSearchableSetting();
+  const terminology = useSettingsVcsTerminology();
   const { scope, target, connectedEnvironments } = useSettingsScope();
   const gt = useGT();
   const m = useMessages();
@@ -586,15 +605,32 @@ export function WorktreeSubmodulesRow() {
       {...searchableSetting("worktree-submodules")}
       description={
         isProjectScope
-          ? gt("How new worktrees in this project populate git submodules.")
-          : gt(
-              "How new worktrees populate git submodules. Projects and their t3.json can override it.",
-            )
+          ? terminology.kind === "git"
+            ? gt("How new worktrees in this project populate git submodules.")
+            : vcsMessage(
+                vcsMsg("How new {value0} in this project populate git submodules.", {
+                  value0: terminology.workspaceNounPlural,
+                }),
+              )
+          : terminology.kind === "git"
+            ? gt(
+                "How new worktrees populate git submodules. Projects and their t3.json can override it.",
+              )
+            : vcsMessage(
+                vcsMsg(
+                  "How new {value0} populate git submodules. Projects and their t3.json can override it.",
+                  { value0: terminology.workspaceNounPlural },
+                ),
+              )
       }
       resetAction={
         !isProjectScope && settings.worktreeSubmodules !== null ? (
           <SettingResetButton
-            ariaLabel={gt("Reset worktree submodules to default")}
+            ariaLabel={
+              terminology.kind === "git"
+                ? gt("Reset worktree submodules to default")
+                : vcsMessage(vcsMsg("{value0} submodules", { value0: terminology.workspaceNoun }))
+            }
             onClick={() => updateSettings({ worktreeSubmodules: null })}
           />
         ) : null
@@ -606,7 +642,16 @@ export function WorktreeSubmodulesRow() {
             if (isWorktreeSubmodules(value)) updateSettings({ worktreeSubmodules: value });
           }}
         >
-          <SelectTrigger size="sm" aria-label={gt("Worktree submodules")}>
+          <SelectTrigger
+            size="sm"
+            aria-label={
+              terminology.kind === "git"
+                ? gt("Worktree submodules")
+                : vcsMessage(
+                    vcsMsg("{value0} submodules", { value0: terminology.workspaceNounTitle }),
+                  )
+            }
+          >
             <SelectValue>
               {(value: string | null) =>
                 isWorktreeSubmodules(value)

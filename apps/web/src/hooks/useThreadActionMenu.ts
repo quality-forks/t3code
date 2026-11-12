@@ -1,4 +1,7 @@
+import { m as vcsMessage } from "~/i18n/messages";
+import { msg as vcsMsg } from "gt-react";
 import { thrownErrorMessage } from "@t3tools/client-runtime/errors";
+import { readVcsTerminology } from "../state/vcs";
 import { scopeProjectRef } from "@t3tools/client-runtime/environment";
 import { requestCustomSnooze } from "../components/CustomSnoozeDialog";
 import { openGuestShareDialog } from "../components/chat/guestShareDialogState";
@@ -102,13 +105,34 @@ export function useThreadActionMenu(input: {
   const { copyToClipboard: copyPathToClipboard } = useCopyToClipboard<{ path: string }>({
     onError: (error) => failureToast(m(msg("Failed to copy path")), error),
   });
-  const { copyToClipboard: copyBranchToClipboard } = useCopyToClipboard<{ branch: string }>({
-    target: {
-      target: "branch name",
-      unavailableMessage: msg("Clipboard API is unavailable while copying branch name."),
-      failureMessage: msg("Failed to copy branch name to the clipboard."),
-    },
-    onError: (error) => failureToast(m(msg("Failed to copy branch")), error),
+  const { copyToClipboard: copyBranchToClipboard } = useCopyToClipboard<{
+    branch: string;
+    terminology: import("@t3tools/shared/vcs").VcsTerminology;
+  }>({
+    target: (ctx) => ({
+      target: "ref name",
+      unavailableMessage:
+        ctx.terminology.kind === "git"
+          ? vcsMsg("Clipboard API is unavailable while copying branch name.")
+          : vcsMsg("Clipboard API is unavailable while copying {value0} name.", {
+              value0: ctx.terminology.refNoun,
+            }),
+      failureMessage:
+        ctx.terminology.kind === "git"
+          ? vcsMsg("Failed to copy branch name to the clipboard.")
+          : vcsMsg("Failed to copy {value0} name to the clipboard.", {
+              value0: ctx.terminology.refNoun,
+            }),
+    }),
+    onError: (error, ctx) =>
+      failureToast(
+        vcsMessage(
+          ctx.terminology.kind === "git"
+            ? vcsMsg("Failed to copy branch")
+            : vcsMsg("Failed to copy {value0}", { value0: ctx.terminology.refNoun }),
+        ),
+        error,
+      ),
   });
   const { copyToClipboard: copyThreadIdToClipboard } = useCopyToClipboard<{ threadId: ThreadId }>({
     onError: (error) => failureToast(m(msg("Failed to copy thread ID")), error),
@@ -138,7 +162,12 @@ export function useThreadActionMenu(input: {
       };
       const isRegeneratingTitle = thread.titleRegeneration != null;
       const snoozePresets = resolveSnoozePresets(now, timestampFormat, threadRef.environmentId);
+      const terminology = readVcsTerminology(
+        thread.environmentId,
+        thread.worktreePath ?? projectCwd,
+      );
       const items = buildThreadActionMenuItems({
+        terminology,
         canOperate: readEnvironmentScope(threadRef.environmentId, AuthOrchestrationOperateScope),
         canFind: onFind !== undefined,
         branch: thread.branch ?? null,
@@ -306,7 +335,10 @@ export function useThreadActionMenu(input: {
         }
         case "copy-branch":
           if (thread.branch) {
-            copyBranchToClipboard(thread.branch, { branch: thread.branch });
+            copyBranchToClipboard(thread.branch, {
+              branch: thread.branch,
+              terminology,
+            });
           }
           return;
         case "copy-thread":

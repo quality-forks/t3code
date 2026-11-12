@@ -1,8 +1,12 @@
+import { useMessages as useVcsMessages } from "gt-react";
+import { msg as vcsMsg } from "gt-react";
+import { useContext } from "react";
+import { VcsTerminologyContext } from "../state/vcs";
 import { ComposerSelectControl } from "./chat/ComposerControl";
 import { ComposerContextLabel } from "./ComposerContextLabel";
 import { FolderGit2Icon, FolderGitIcon, FolderIcon } from "lucide-react";
 import { memo, type MouseEvent as ReactMouseEvent } from "react";
-import { T, useGT, useMessages } from "gt-react";
+import { T, useGT } from "gt-react";
 
 import {
   resolveCurrentWorkspaceLabel,
@@ -30,6 +34,7 @@ const PREVIOUS_WORKTREE_SELECT_VALUE = "previous-worktree";
 interface BranchToolbarEnvModeSelectorProps {
   forceNewWorktree?: boolean;
   envLocked: boolean;
+  vcsActionsSupported: boolean;
   effectiveEnvMode: EnvMode;
   activeWorktreePath: string | null;
   onEnvModeChange: (mode: EnvMode) => void;
@@ -41,6 +46,7 @@ interface BranchToolbarEnvModeSelectorProps {
 export const BranchToolbarEnvModeSelector = memo(function BranchToolbarEnvModeSelector({
   forceNewWorktree = false,
   envLocked,
+  vcsActionsSupported,
   effectiveEnvMode,
   activeWorktreePath,
   onEnvModeChange,
@@ -48,8 +54,9 @@ export const BranchToolbarEnvModeSelector = memo(function BranchToolbarEnvModeSe
   previousWorktreeBranch = null,
   onUsePreviousWorktree,
 }: BranchToolbarEnvModeSelectorProps) {
+  const vcsMessage = useVcsMessages();
   const gt = useGT();
-  const m = useMessages();
+  const terminology = useContext(VcsTerminologyContext);
   const composerFloatingLayerProps = useComposerMenuProps();
   const shortcutLabel = shortcutLabelForCommand(
     useAtomValue(primaryServerKeybindingsAtom),
@@ -59,9 +66,9 @@ export const BranchToolbarEnvModeSelector = memo(function BranchToolbarEnvModeSe
   const envModeItems = [
     {
       value: "local",
-      label: resolveCurrentWorkspaceLabel(activeWorktreePath, m),
+      label: resolveCurrentWorkspaceLabel(activeWorktreePath, terminology, vcsMessage),
     },
-    { value: "worktree", label: resolveEnvModeLabel("worktree", m) },
+    { value: "worktree", label: resolveEnvModeLabel("worktree", terminology, vcsMessage) },
     ...(showPreviousWorktree && previousWorktreeLabel
       ? [{ value: PREVIOUS_WORKTREE_SELECT_VALUE, label: previousWorktreeLabel }]
       : []),
@@ -88,8 +95,13 @@ export const BranchToolbarEnvModeSelector = memo(function BranchToolbarEnvModeSe
         )}
         <ComposerContextLabel>
           {forceNewWorktree
-            ? resolveEnvModeLabel("worktree", m)
-            : resolveLockedWorkspaceLabel(activeWorktreePath, effectiveEnvMode, m)}
+            ? resolveEnvModeLabel("worktree", terminology, vcsMessage)
+            : resolveLockedWorkspaceLabel(
+                activeWorktreePath,
+                effectiveEnvMode,
+                terminology,
+                vcsMessage,
+              )}
         </ComposerContextLabel>
       </span>
     );
@@ -99,9 +111,20 @@ export const BranchToolbarEnvModeSelector = memo(function BranchToolbarEnvModeSe
         <TooltipTrigger render={lockedRow} />
         <TooltipPopup>
           {forceNewWorktree
-            ? gt("Each model starts in its own worktree.")
+            ? terminology.kind === "git"
+              ? gt("Each model starts in its own worktree.")
+              : vcsMessage(
+                  vcsMsg("Each model starts in its own {value0}.", {
+                    value0: terminology.workspaceNoun,
+                  }),
+                )
             : (activeWorktreePath ??
-              resolveLockedWorkspaceLabel(activeWorktreePath, effectiveEnvMode, m))}
+              resolveLockedWorkspaceLabel(
+                activeWorktreePath,
+                effectiveEnvMode,
+                terminology,
+                vcsMessage,
+              ))}
         </TooltipPopup>
       </Tooltip>
     );
@@ -112,6 +135,7 @@ export const BranchToolbarEnvModeSelector = memo(function BranchToolbarEnvModeSe
       modal={false}
       value={effectiveEnvMode}
       onValueChange={(value: string | null) => {
+        if (value !== "local" && !vcsActionsSupported) return;
         if (value === PREVIOUS_WORKTREE_SELECT_VALUE) {
           onUsePreviousWorktree?.();
           return;
@@ -146,8 +170,8 @@ export const BranchToolbarEnvModeSelector = memo(function BranchToolbarEnvModeSe
         </TooltipTrigger>
         <TooltipPopup>
           {effectiveEnvMode === "worktree"
-            ? resolveEnvModeLabel("worktree", m)
-            : resolveCurrentWorkspaceLabel(activeWorktreePath, m)}
+            ? resolveEnvModeLabel("worktree", terminology, vcsMessage)
+            : resolveCurrentWorkspaceLabel(activeWorktreePath, terminology, vcsMessage)}
           {shortcutLabel ? ` · ${shortcutLabel}` : null}
         </TooltipPopup>
       </Tooltip>
@@ -167,17 +191,17 @@ export const BranchToolbarEnvModeSelector = memo(function BranchToolbarEnvModeSe
               ) : (
                 <FolderIcon className="size-3" />
               )}
-              {resolveCurrentWorkspaceLabel(activeWorktreePath, m)}
+              {resolveCurrentWorkspaceLabel(activeWorktreePath, terminology, vcsMessage)}
             </span>
           </SelectItem>
-          <SelectItem value="worktree">
+          <SelectItem value="worktree" disabled={!vcsActionsSupported}>
             <span className="inline-flex items-center gap-1.5">
               <FolderGit2Icon className="size-3" />
-              {resolveEnvModeLabel("worktree", m)}
+              {resolveEnvModeLabel("worktree", terminology, vcsMessage)}
             </span>
           </SelectItem>
           {showPreviousWorktree && previousWorktreeLabel ? (
-            <SelectItem value={PREVIOUS_WORKTREE_SELECT_VALUE}>
+            <SelectItem value={PREVIOUS_WORKTREE_SELECT_VALUE} disabled={!vcsActionsSupported}>
               <PreviousWorktreeItemContent branch={previousWorktreeBranch} />
             </SelectItem>
           ) : null}

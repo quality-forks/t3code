@@ -7,6 +7,7 @@ import {
   type WorktreeSubmodules,
 } from "@t3tools/contracts";
 import { thrownErrorMessage } from "@t3tools/client-runtime/errors";
+import { DEFAULT_VCS_TERMINOLOGY, type VcsTerminology } from "@t3tools/shared/vcs";
 import type { ThreadStructureRuntime } from "@t3tools/client-runtime/state/shell";
 import * as Schema from "effect/Schema";
 import { msg } from "gt-react";
@@ -109,8 +110,18 @@ export function resolveContextStripLabelsCompact(input: {
     : input.neededWidth > input.availableWidth;
 }
 
-export function resolveEnvModeLabel(mode: EnvMode, resolve: MessageResolver = m): string {
-  return mode === "worktree" ? resolve(msg("New worktree")) : resolve(msg("Current checkout"));
+export function resolveEnvModeLabel(
+  mode: EnvMode,
+  terminology: VcsTerminology = DEFAULT_VCS_TERMINOLOGY,
+  vcsMessage: MessageResolver = m,
+): string {
+  return mode === "worktree"
+    ? vcsMessage(
+        terminology.kind === "git"
+          ? msg("New worktree")
+          : msg("New {value0}", { value0: terminology.workspaceNoun }),
+      )
+    : vcsMessage(msg("Current checkout"));
 }
 
 export const WORKTREE_SUBMODULES_LABELS: Record<WorktreeSubmodules, string> = {
@@ -121,23 +132,32 @@ export const WORKTREE_SUBMODULES_LABELS: Record<WorktreeSubmodules, string> = {
 
 export function resolveCurrentWorkspaceLabel(
   activeWorktreePath: string | null,
-  resolve: MessageResolver = m,
+  terminology: VcsTerminology = DEFAULT_VCS_TERMINOLOGY,
+  vcsMessage: MessageResolver = m,
 ): string {
   return activeWorktreePath
-    ? resolve(msg("Current worktree"))
-    : resolveEnvModeLabel("local", resolve);
+    ? vcsMessage(
+        terminology.kind === "git"
+          ? msg("Current worktree")
+          : msg("Current {value0}", { value0: terminology.workspaceNoun }),
+      )
+    : resolveEnvModeLabel("local", terminology, vcsMessage);
 }
 
 export function resolveLockedWorkspaceLabel(
   activeWorktreePath: string | null,
   effectiveEnvMode: EnvMode,
-  resolve: MessageResolver = m,
+  terminology: VcsTerminology = DEFAULT_VCS_TERMINOLOGY,
+  vcsMessage: MessageResolver = m,
 ): string {
   if (activeWorktreePath)
-    return activeWorktreePath.split(/[\\/]/).findLast(Boolean) ?? resolve(msg("Worktree"));
+    return (
+      activeWorktreePath.split(/[\\/]/).findLast(Boolean) ??
+      (terminology.kind === "git" ? vcsMessage(msg("Worktree")) : terminology.workspaceNounTitle)
+    );
   return effectiveEnvMode === "worktree"
-    ? resolveEnvModeLabel("worktree", resolve)
-    : resolve(msg("Local checkout"));
+    ? resolveEnvModeLabel("worktree", terminology, vcsMessage)
+    : vcsMessage(msg("Local checkout"));
 }
 
 export interface PreviousWorktreeSeed {
@@ -180,11 +200,23 @@ export function resolvePreviousWorktreeSeed(input: {
 
 export function resolvePreviousWorktreeLabel(
   seed: PreviousWorktreeSeed,
-  resolve: MessageResolver = m,
+  terminology: VcsTerminology = DEFAULT_VCS_TERMINOLOGY,
+  vcsMessage: MessageResolver = m,
 ): string {
   return seed.branch
-    ? resolve(msg("Previous worktree ({branch})", { branch: seed.branch }))
-    : resolve(msg("Previous worktree"));
+    ? vcsMessage(
+        terminology.kind === "git"
+          ? msg("Previous worktree ({branch})", { branch: seed.branch })
+          : msg("Previous {value0} ({value1})", {
+              value0: terminology.workspaceNoun,
+              value1: seed.branch,
+            }),
+      )
+    : vcsMessage(
+        terminology.kind === "git"
+          ? msg("Previous worktree")
+          : msg("Previous {value0}", { value0: terminology.workspaceNoun }),
+      );
 }
 
 export function resolveEffectiveEnvMode(input: {

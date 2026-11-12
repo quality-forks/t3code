@@ -1,3 +1,6 @@
+import { useMessages as useVcsMessages } from "gt-react";
+import { localizedVcsTerminology } from "@t3tools/client-runtime/state/vcs";
+import { msg as vcsMsg } from "gt-react";
 import {
   AuthOrchestrationOperateScope,
   type EnvironmentId,
@@ -19,6 +22,7 @@ import {
   usePreparePullRequestThreadAction,
   usePullRequestResolutionState,
 } from "~/state/sourceControlActions";
+import { resolveVcsUnsupportedReason } from "@t3tools/shared/vcs";
 import { cn } from "~/lib/utils";
 import { parsePullRequestReference } from "@t3tools/client-runtime/pull-request-link-input";
 import { getSourceControlPresentation } from "~/sourceControlPresentation";
@@ -76,6 +80,7 @@ export function PullRequestThreadDialog({
   onOpenChange,
   onPrepared,
 }: PullRequestThreadDialogProps) {
+  const vcsMessage = useVcsMessages();
   const gt = useGT();
   const referenceInputRef = useRef<HTMLInputElement>(null);
   const [reference, setReference] = useState(initialReference ?? "");
@@ -100,6 +105,8 @@ export function PullRequestThreadDialog({
   const sourceControlPresentation = getSourceControlPresentation(gitStatus?.sourceControlProvider);
   const terminology = sourceControlPresentation.terminology;
   const term = changeRequestTermKind(terminology);
+  const vcsTerminology = localizedVcsTerminology(gitStatus, vcsMessage);
+  const unsupportedReason = resolveVcsUnsupportedReason(gitStatus);
   const SourceControlIcon = sourceControlPresentation.Icon;
 
   const parsedReference = parsePullRequestReference(reference);
@@ -135,7 +142,7 @@ export function PullRequestThreadDialog({
   const statusTone = pullRequestStatusTone(resolvedPullRequest?.state);
 
   const handleConfirm = async (mode: "local" | "worktree") => {
-    if (!preparePullRequestThreadAction.isAllowed) return;
+    if (!preparePullRequestThreadAction.isAllowed || unsupportedReason !== null) return;
     if (
       mode === "worktree" &&
       !readEnvironmentScope(environmentId, AuthOrchestrationOperateScope)
@@ -198,6 +205,7 @@ export function PullRequestThreadDialog({
         : null;
   const errorMessage =
     validationMessage ??
+    unsupportedReason ??
     (checkoutError?.target === checkoutTarget ? checkoutError.message : null) ??
     (resolvedPullRequest === null ? pullRequestResolution.error : null);
 
@@ -227,10 +235,22 @@ export function PullRequestThreadDialog({
             )}
           </DialogTitle>
           <DialogDescription>
-            {gt(
-              "Resolve a {provider} {term, select, mr {merge request} cr {change request} other {pull request}}, then create the draft thread in the main repo or in a dedicated worktree.",
-              { provider: sourceControlPresentation.providerName, term },
-            )}
+            {vcsTerminology.kind === "git"
+              ? gt(
+                  "Resolve a {provider} {term, select, mr {merge request} cr {change request} other {pull request}}, then create the draft thread in the main repo or in a dedicated worktree.",
+                  {
+                    provider: sourceControlPresentation.providerName,
+                    term,
+                  },
+                )
+              : gt(
+                  "Resolve a {provider} {term, select, mr {merge request} cr {change request} other {pull request}}, then create the draft thread in the main repo or in a dedicated {workspace}.",
+                  {
+                    provider: sourceControlPresentation.providerName,
+                    term,
+                    workspace: vcsTerminology.workspaceNoun,
+                  },
+                )}
           </DialogDescription>
         </DialogHeader>
         <DialogPanel>
@@ -324,6 +344,7 @@ export function PullRequestThreadDialog({
             onClick={() => handleConfirm("local")}
             disabled={
               !preparePullRequestThreadAction.isAllowed ||
+              unsupportedReason !== null ||
               !cwd ||
               !resolvedPullRequest ||
               isResolving ||
@@ -340,6 +361,7 @@ export function PullRequestThreadDialog({
             onClick={() => handleConfirm("worktree")}
             disabled={
               !preparePullRequestThreadAction.isAllowed ||
+              unsupportedReason !== null ||
               !canOperateThread ||
               !cwd ||
               !resolvedPullRequest ||
@@ -348,8 +370,14 @@ export function PullRequestThreadDialog({
             }
           >
             {preparingMode === "worktree"
-              ? gt("Preparing worktree...")
-              : gt("Worktree", { $context: "checkout in a new git worktree" })}
+              ? vcsTerminology.kind === "git"
+                ? gt("Preparing worktree...")
+                : vcsMessage(
+                    vcsMsg("Preparing {value0}...", { value0: vcsTerminology.workspaceNoun }),
+                  )
+              : vcsTerminology.kind === "git"
+                ? gt("Worktree", { $context: "checkout in a new git worktree" })
+                : vcsTerminology.workspaceNounTitle}
           </Button>
         </DialogFooter>
       </DialogPopup>

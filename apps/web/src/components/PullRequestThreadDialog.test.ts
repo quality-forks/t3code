@@ -98,8 +98,12 @@ vi.mock("~/state/git", () => ({
   },
 }));
 vi.mock("~/lib/utils", () => ({ cn: () => "" }));
-vi.mock("~/state/query", () => ({ useEnvironmentQuery: () => ({ data: null }) }));
+vi.mock("~/state/query", () => ({
+  useEnvironmentQuery: () => ({ data: null }),
+  useEnvironmentQuerySelector: () => true,
+}));
 vi.mock("~/state/vcs", () => ({
+  selectVcsActionsSupported: () => true,
   vcsEnvironment: { status: () => null },
   vcsActionManager: {
     stateAtom: () => "vcs-state",

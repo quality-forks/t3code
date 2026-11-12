@@ -1,3 +1,5 @@
+import { useMessages as useVcsMessages } from "gt-react";
+import { msg as vcsMsg } from "gt-react";
 import { msg } from "gt-react";
 import { thrownErrorMessage } from "@t3tools/client-runtime/errors";
 import { m } from "~/i18n/messages";
@@ -199,6 +201,8 @@ type UsageLimitsPanel = ReturnType<typeof useUsageLimitsPanel>;
 type TimelineFollow = ReturnType<typeof useTimelineFollow>;
 
 interface ComposerSendInput {
+  readonly vcsTerminology: import("@t3tools/shared/vcs").VcsTerminology;
+  readonly vcsWorkspacePreparationBlocked: boolean;
   readonly environmentId: EnvironmentId;
   readonly routeThreadKey: string;
   readonly currentRouteThreadKeyRef: { readonly current: string | null };
@@ -207,6 +211,7 @@ interface ComposerSendInput {
   readonly activeThread: EnvironmentThreadShell | undefined;
   readonly activeThreadKey: string | null;
   readonly activeThreadBranch: string | null;
+  readonly worktreeBaseSelected?: boolean;
   readonly activeProject: EnvironmentProject | null;
   readonly activeProjectIsScratch: boolean;
   readonly activeProjectDefaultModelSelection: ModelSelection | null;
@@ -301,6 +306,7 @@ interface ComposerSendInput {
  * when it fails.
  */
 export function useComposerSend(input: ComposerSendInput) {
+  const vcsMessage = useVcsMessages();
   const {
     environmentId,
     routeThreadKey,
@@ -310,6 +316,7 @@ export function useComposerSend(input: ComposerSendInput) {
     activeThread,
     activeThreadKey,
     activeThreadBranch,
+    worktreeBaseSelected,
     activeProject,
     activeProjectIsScratch,
     activeProjectDefaultModelSelection,
@@ -428,6 +435,7 @@ export function useComposerSend(input: ComposerSendInput) {
     },
   ) => {
     e?.preventDefault();
+    if (input.vcsWorkspacePreparationBlocked) return;
     // What the user pressed send on; uploads below can take a while, and a redirect must not
     // decline approvals for a draft that changed meanwhile.
     let promptAtSend = detachedOverride ? detachedOverride.prompt : promptRef.current;
@@ -787,9 +795,25 @@ export function useComposerSend(input: ComposerSendInput) {
       toastManager.add(
         stackedThreadToast({
           type: "warning",
-          title: m(msg("Choose models and a base branch")),
-          description: m(
-            msg("Multiple models need a new thread in a Git project. Each gets its own worktree."),
+          title: vcsMessage(
+            input.vcsTerminology.kind === "git"
+              ? vcsMsg("Choose models and a base branch")
+              : vcsMsg("Choose models and a base {value0}", {
+                  value0: input.vcsTerminology.refNoun,
+                }),
+          ),
+          description: vcsMessage(
+            input.vcsTerminology.kind === "git"
+              ? vcsMsg(
+                  "Multiple models need a new thread in a Git project. Each gets its own worktree.",
+                )
+              : vcsMsg(
+                  "Multiple models need a new thread in a {value0} project. Each gets its own {value1}.",
+                  {
+                    value0: input.vcsTerminology.systemName,
+                    value1: input.vcsTerminology.workspaceNoun,
+                  },
+                ),
           ),
         }),
       );
@@ -1032,7 +1056,14 @@ export function useComposerSend(input: ComposerSendInput) {
     if (missingWorktreeBaseBranch) {
       setThreadError(
         threadIdForSend,
-        m(msg("Select a base branch before sending in New worktree mode.")),
+        vcsMessage(
+          input.vcsTerminology.kind === "git"
+            ? vcsMsg("Select a base branch before sending in New worktree mode.")
+            : vcsMsg("Select a base {value0} before sending in New {value1} mode.", {
+                value0: input.vcsTerminology.refNoun,
+                value1: input.vcsTerminology.workspaceNoun,
+              }),
+        ),
       );
       return;
     }
@@ -1572,6 +1603,7 @@ export function useComposerSend(input: ComposerSendInput) {
               resolveBackgroundDraftWorkspaceOptions({
                 envMode: sendEnvMode,
                 branch: activeThreadBranch,
+                ...(worktreeBaseSelected === undefined ? {} : { worktreeBaseSelected }),
                 startFromOrigin,
               }),
             ),

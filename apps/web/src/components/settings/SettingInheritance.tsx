@@ -1,3 +1,5 @@
+import { DEFAULT_VCS_TERMINOLOGY, type VcsTerminology } from "@t3tools/shared/vcs";
+import { useSettingsVcsTerminology } from "./useSettingsVcsTerminology";
 import {
   DEFAULT_SERVER_SETTINGS,
   PROJECT_FILE_BACKED_SETTINGS,
@@ -49,6 +51,7 @@ const BACKGROUND_ACTIVITY_PROFILE_LABELS: Record<string, string> = {
 function formatValue(
   key: keyof ServerSettings,
   value: unknown,
+  terminology: VcsTerminology = DEFAULT_VCS_TERMINOLOGY,
   resolve: MessageResolver = m,
 ): string {
   if (value === null || value === undefined) {
@@ -78,7 +81,7 @@ function formatValue(
   }
   if (typeof value === "string") {
     if (key === "defaultThreadEnvMode" && (value === "local" || value === "worktree")) {
-      return resolveEnvModeLabel(value, resolve);
+      return resolveEnvModeLabel(value, terminology, resolve);
     }
     if (key === "worktreeSubmodules" && value in WORKTREE_SUBMODULES_LABELS) {
       return resolve(WORKTREE_SUBMODULES_LABELS[value as WorktreeSubmodules]);
@@ -123,6 +126,7 @@ export function settingInheritanceLayers(
   target: ScopedSettingsTarget,
   environmentSettings: ServerSettings,
   key: keyof ServerSettings,
+  terminology: VcsTerminology = DEFAULT_VCS_TERMINOLOGY,
   resolve: MessageResolver = m,
 ): readonly InheritanceLayer[] {
   const environmentValue = environmentSettings[key];
@@ -136,7 +140,7 @@ export function settingInheritanceLayers(
       label: resolve(msg("Project")),
       value:
         source === "project"
-          ? formatValue(key, target.settings[key], resolve)
+          ? formatValue(key, target.settings[key], terminology, resolve)
           : resolve(msg("Inherits")),
       effective: source === "project",
       set: source === "project",
@@ -145,7 +149,9 @@ export function settingInheritanceLayers(
   layers.push({
     key: "environment",
     label: target.label,
-    value: environmentSet ? formatValue(key, environmentValue, resolve) : resolve(msg("Inherits")),
+    value: environmentSet
+      ? formatValue(key, environmentValue, terminology, resolve)
+      : resolve(msg("Inherits")),
     effective: source === "environment" && environmentSet,
     set: environmentSet,
   });
@@ -155,7 +161,7 @@ export function settingInheritanceLayers(
       label: "t3.json",
       value:
         source === "t3.json"
-          ? formatValue(key, target.settings[key], resolve)
+          ? formatValue(key, target.settings[key], terminology, resolve)
           : resolve(msg("Inherits")),
       effective: source === "t3.json",
       set: source === "t3.json",
@@ -168,7 +174,7 @@ export function settingInheritanceLayers(
   layers.push({
     key: "built-in",
     label: resolve(msg("Default", { $context: "built-in default value" })),
-    value: formatValue(key, builtIn, resolve),
+    value: formatValue(key, builtIn, terminology, resolve),
     effective: source === "environment" && !environmentSet,
     set: true,
   });
@@ -215,6 +221,7 @@ export function SettingInheritance({
 }) {
   const messages = useMessages();
   const gt = useGT();
+  const terminology = useSettingsVcsTerminology();
   const scopeContext = useOptionalSettingsScope();
   const key = keys[0];
   if (!key || targets.length === 0) return null;
@@ -239,6 +246,7 @@ export function SettingInheritance({
       target,
       environment.serverConfig.settings,
       key,
+      terminology,
       messages,
     );
     const winningLayer = layers.find((layer) => layer.effective);
@@ -479,6 +487,7 @@ export function SettingInheritance({
                                     (member) =>
                                       member.target.environmentId === project.environmentId,
                                   )?.overrides[project.projectId]?.[key],
+                                  terminology,
                                   messages,
                                 )
                               : null}

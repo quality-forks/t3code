@@ -1,3 +1,4 @@
+import { GIT_VCS_TERMINOLOGY } from "@t3tools/shared/vcs";
 import {
   AuthOrchestrationOperateScope,
   EnvironmentId,
@@ -21,6 +22,7 @@ const state = vi.hoisted(() => ({
   granted: new Set<string>(),
   effects: [] as string[],
   completed: deferred<void>(),
+  shown: deferred<void>(),
   show: vi.fn<
     (
       items: ReadonlyArray<ContextMenuItem<ThreadActionMenuId>>,
@@ -34,6 +36,7 @@ function recordEffect(action: string) {
   state.completed.resolve();
 }
 
+vi.mock("../state/vcs", () => ({ readVcsTerminology: () => GIT_VCS_TERMINOLOGY }));
 vi.mock("../components/CustomSnoozeDialog", () => ({ requestCustomSnooze: vi.fn() }));
 vi.mock("react", () => ({
   useCallback: (callback: unknown) => callback,
@@ -71,7 +74,14 @@ vi.mock("../state/use-atom-command", () => ({
 }));
 vi.mock("../localApi", () => ({
   readLocalApi: () => ({
-    contextMenu: { show: state.show, close: () => {} },
+    contextMenu: {
+      show: (...args: Parameters<typeof state.show>) => {
+        const result = state.show(...args);
+        state.shown.resolve();
+        return result;
+      },
+      close: () => {},
+    },
     dialogs: {
       confirm: async () => {
         recordEffect("confirm");
@@ -162,6 +172,7 @@ beforeEach(() => {
   state.granted = new Set(["primary"]);
   state.effects = [];
   state.completed = deferred<void>();
+  state.shown = deferred<void>();
   state.show.mockReset().mockResolvedValue(null);
 });
 
@@ -173,6 +184,7 @@ describe("thread menu permissions", () => {
       const choice = deferred<ThreadActionMenuId | null>();
       state.show.mockReturnValue(choice.promise);
       createMenu().openMenu(position);
+      await state.shown.promise;
       state.granted.delete("secondary");
       choice.resolve(action);
       await state.completed.promise;
@@ -182,6 +194,7 @@ describe("thread menu permissions", () => {
 
   it("offers find only to a header that can open it, without task permission", async () => {
     createMenu().openMenu(position);
+    await state.shown.promise;
     expect(state.show.mock.calls[0]![0].some((item) => item.id === "find")).toBe(false);
     state.show.mockResolvedValue("find");
     const onFind = vi.fn(() => recordEffect("find"));

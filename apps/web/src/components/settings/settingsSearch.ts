@@ -872,7 +872,10 @@ export const SETTINGS_SEARCH_ITEMS = [
     title: msg("New threads"),
     to: "/settings/threads",
     scope: "project-defaults",
-    searchTerms: [msg("default workspace mode draft local worktree")],
+    searchTerms: [
+      msg("default workspace mode draft local worktree"),
+      msg("default workspace mode draft local worktree jj jujutsu"),
+    ],
   },
   {
     id: "worktree-submodules",
@@ -886,7 +889,10 @@ export const SETTINGS_SEARCH_ITEMS = [
     title: msg("Start from remote"),
     to: "/settings/worktrees",
     scope: "project-defaults",
-    searchTerms: [msg("new worktrees start remote origin latest fetched branch local")],
+    searchTerms: [
+      msg("new worktrees start remote origin latest fetched branch local"),
+      "new worktrees workspaces start remote origin latest fetched branch bookmark local jj jujutsu",
+    ],
   },
   {
     id: "add-project-starts-in",
@@ -1273,7 +1279,10 @@ export const SETTINGS_SEARCH_ITEMS = [
     id: "worktree-branch-naming",
     title: msg("Worktree branch naming"),
     to: "/settings/worktrees",
-    searchTerms: [msg("static semantic prefix custom prompt instructions feat fix refactor chore")],
+    searchTerms: [
+      msg("static semantic prefix custom prompt instructions feat fix refactor chore"),
+      "bookmark workspace jj jujutsu",
+    ],
     environmentOnly: true,
     scope: "project-defaults",
   },

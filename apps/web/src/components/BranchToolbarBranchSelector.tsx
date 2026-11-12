@@ -1,4 +1,8 @@
 import { localizedVcsTerminology } from "@t3tools/client-runtime/state/vcs";
+import {
+  resolveNewWorkspaceBase,
+  workspaceBaseLabel,
+} from "@t3tools/client-runtime/worktree-setup";
 import { supportsVcsActions } from "@t3tools/shared/vcs";
 import { ThreadDetailsControl } from "./chat/ThreadDetailsControl";
 import { ComposerContextLabel } from "./ComposerContextLabel";
@@ -41,7 +45,7 @@ import { useEnvironmentQuery } from "../state/query";
 import { readEnvironmentScope, useEnvironmentScope } from "~/state/session";
 import { threadEnvironment } from "../state/threads";
 import { useAtomCommand } from "../state/use-atom-command";
-import { vcsEnvironment } from "../state/vcs";
+import { vcsEnvironment, VcsTerminologyContext } from "../state/vcs";
 import { cn } from "../lib/utils";
 import { THREAD_DETAILS_PANEL_ICON_CLASS } from "./chat/threadDetailsPanelStyles";
 import { ThreadDetailsThreadPrRows } from "./chat/ThreadDetailsPrRows";
@@ -100,8 +104,6 @@ interface BranchToolbarBranchSelectorProps {
   onCheckoutPullRequestRequest?: (reference: string) => void;
   onComposerFocusRequest?: () => void;
 }
-
-const WORKTREE_CHANGE_BLOCKED_MESSAGE = msg("Stop the current turn to switch worktrees.");
 
 // Picker checkouts by environment and checkout: null while in flight, then the branch it landed
 // on. Shared because a draft thread mounts two selectors on one checkout, and the switch's own
@@ -215,7 +217,15 @@ export function BranchToolbarBranchSelector({
       })
     ) {
       toastManager.add(
-        stackedThreadToast({ type: "warning", title: messages(WORKTREE_CHANGE_BLOCKED_MESSAGE) }),
+        stackedThreadToast({
+          type: "warning",
+          title:
+            terminology.kind === "git"
+              ? gt("Stop the current turn to switch worktrees.")
+              : gt("Stop the current turn to switch {workspaces}.", {
+                  workspaces: terminology.workspaceNounPlural,
+                }),
+        }),
       );
       return false;
     }
@@ -251,6 +261,7 @@ export function BranchToolbarBranchSelector({
       branch,
       worktreePath,
       envMode: nextDraftEnvMode,
+      worktreeBaseSelected: isSelectingWorktreeBase && !automatic,
       environmentSelection: automatic ? (draftThread?.environmentSelection ?? "auto") : "manual",
       projectRef: scopeProjectRef(environmentId, activeProject.id),
     });
@@ -319,7 +330,12 @@ export function BranchToolbarBranchSelector({
     ? `__create_new_branch__:${trimmedBranchQuery}`
     : null;
   const pickerCreateBranchItemValue = hasExactBranchMatch ? null : createBranchItemValue;
+  const committedBase = isSelectingWorktreeBase
+    ? projectStatusQuery.data?.committedBase
+    : undefined;
+  const currentChangeItemValue = committedBase?.changeId;
   const branchPickerItems = [
+    ...(currentChangeItemValue ? [currentChangeItemValue] : []),
     ...(checkoutPullRequestItemValue ? [checkoutPullRequestItemValue] : []),
     ...refs.map((refName) => refName.name),
     ...(pickerCreateBranchItemValue ? [pickerCreateBranchItemValue] : []),
@@ -327,13 +343,18 @@ export function BranchToolbarBranchSelector({
   const filteredBranchPickerItems =
     normalizedBranchQuery.length === 0
       ? branchPickerItems
-      : branchPickerItems.filter((itemValue) =>
-          shouldIncludeBranchPickerItem({
-            itemValue,
-            normalizedQuery: normalizedBranchQuery,
-            createBranchItemValue: pickerCreateBranchItemValue,
-            checkoutPullRequestItemValue,
-          }),
+      : branchPickerItems.filter(
+          (itemValue) =>
+            (itemValue === currentChangeItemValue &&
+              `${workspaceBaseLabel(itemValue, true, messages)} ${committedBase?.description ?? ""}`
+                .toLowerCase()
+                .includes(normalizedBranchQuery)) ||
+            shouldIncludeBranchPickerItem({
+              itemValue,
+              normalizedQuery: normalizedBranchQuery,
+              createBranchItemValue: pickerCreateBranchItemValue,
+              checkoutPullRequestItemValue,
+            }),
         );
   const hasNextPage =
     branchRefState.data?.nextCursor !== null && branchRefState.data?.nextCursor !== undefined;
@@ -348,7 +369,17 @@ export function BranchToolbarBranchSelector({
   const canonicalActiveBranch = resolveBranchToolbarValue({
     envMode: effectiveEnvMode,
     activeWorktreePath,
-    activeThreadBranch,
+    activeThreadBranch: isSelectingWorktreeBase
+      ? resolveNewWorkspaceBase({
+          selectedBase:
+            activeThreadBranchOverride !== undefined || draftThread?.worktreeBaseSelected === true
+              ? activeThreadBranch
+              : null,
+          startFromOrigin,
+          status: projectStatusQuery.data,
+          fallbackBase: activeThreadBranch,
+        })
+      : activeThreadBranch,
     currentGitBranch,
   });
   const [branchHold, setBranchHold] = useState<BranchHold | null>(null);
@@ -413,13 +444,26 @@ export function BranchToolbarBranchSelector({
   const copyBranchName = (branchName: string) => {
     void writeTextToClipboard(branchName, {
       target: "branch name",
-      unavailableMessage: msg("Clipboard API is unavailable while copying branch name."),
-      failureMessage: msg("Failed to copy branch name to the clipboard."),
+      unavailableMessage:
+        terminology.kind === "git"
+          ? msg("Clipboard API is unavailable while copying branch name.")
+          : msg("Clipboard API is unavailable while copying {ref} name.", {
+              ref: terminology.refNoun,
+            }),
+      failureMessage:
+        terminology.kind === "git"
+          ? msg("Failed to copy branch name to the clipboard.")
+          : msg("Failed to copy {ref} name to the clipboard.", {
+              ref: terminology.refNoun,
+            }),
     }).then(undefined, (error: unknown) => {
       toastManager.add(
         stackedThreadToast({
           type: "error",
-          title: gt("Failed to copy branch name"),
+          title:
+            terminology.kind === "git"
+              ? gt("Failed to copy branch name")
+              : gt("Failed to copy {ref} name", { ref: terminology.refNoun }),
           description: toBranchActionErrorMessage(error),
         }),
       );
@@ -433,7 +477,14 @@ export function BranchToolbarBranchSelector({
     event.preventDefault();
     event.stopPropagation();
     const items: ContextMenuItem<"copy-branch-name">[] = [
-      { id: "copy-branch-name", label: gt("Copy branch name"), icon: "copy" },
+      {
+        id: "copy-branch-name",
+        label:
+          terminology.kind === "git"
+            ? gt("Copy branch name")
+            : gt("Copy {ref} name", { ref: terminology.refNoun }),
+        icon: "copy",
+      },
     ];
     void api.contextMenu.show(items, { x: event.clientX, y: event.clientY }).then((action) => {
       if (action === "copy-branch-name") copyBranchName(branchName);
@@ -578,7 +629,10 @@ export function BranchToolbarBranchSelector({
         toastManager.add(
           stackedThreadToast({
             type: "error",
-            title: gt("Failed to switch ref."),
+            title:
+              terminology.kind === "git"
+                ? gt("Failed to switch ref.")
+                : gt("Failed to switch {ref}.", { ref: terminology.genericRefNoun }),
             description: toBranchActionErrorMessage(squashAtomCommandFailure(checkoutResult)),
           }),
         );
@@ -720,18 +774,23 @@ export function BranchToolbarBranchSelector({
   );
 
   const triggerLabel =
-    resolvedActiveBranch === null && branchStatusQuery.data?.vcs?.kind === "jj"
-      ? terminology.noRefLabel
-      : resolveBranchTriggerLabel(
-          {
-            activeWorktreePath,
-            effectiveEnvMode,
-            resolvedActiveBranch,
-            resolvedActiveBranchIsRemote,
-            startFromOrigin,
-          },
-          messages,
-        );
+    resolvedActiveBranch &&
+    terminology.kind === "jj" &&
+    isSelectingWorktreeBase &&
+    workspaceBaseLabel(resolvedActiveBranch, true, messages) !== resolvedActiveBranch
+      ? workspaceBaseLabel(resolvedActiveBranch, true, messages)
+      : resolvedActiveBranch === null && branchStatusQuery.data?.vcs?.kind === "jj"
+        ? terminology.noRefLabel
+        : resolveBranchTriggerLabel(
+            {
+              activeWorktreePath,
+              effectiveEnvMode,
+              resolvedActiveBranch,
+              resolvedActiveBranchIsRemote,
+              startFromOrigin,
+            },
+            messages,
+          );
 
   const branchPrBranch = resolveBranchToolbarPrBranch({
     activeThreadBranch,
@@ -756,6 +815,12 @@ export function BranchToolbarBranchSelector({
   const linkedIssues = serverThread?.issues ?? [];
 
   function selectPickerItem(itemValue: string) {
+    if (itemValue === currentChangeItemValue) {
+      setThreadBranch(itemValue, null);
+      handleOpenChange(false);
+      onComposerFocusRequest?.();
+      return;
+    }
     if (itemValue === checkoutPullRequestItemValue && prReference && onCheckoutPullRequestRequest) {
       latestSelectionIdRef.current++;
       handleOpenChange(false);
@@ -770,6 +835,23 @@ export function BranchToolbarBranchSelector({
   }
 
   function renderPickerItem(itemValue: string, index: number) {
+    if (itemValue === currentChangeItemValue) {
+      return (
+        <ComboboxItem
+          key={itemValue}
+          index={index}
+          value={itemValue}
+          onClick={() => selectPickerItem(itemValue)}
+        >
+          <span className="flex min-w-0 flex-col">
+            <span className="truncate">{workspaceBaseLabel(itemValue, true, messages)}</span>
+            <span className="truncate text-muted-foreground text-xs">
+              {committedBase?.description}
+            </span>
+          </span>
+        </ComboboxItem>
+      );
+    }
     if (checkoutPullRequestItemValue && itemValue === checkoutPullRequestItemValue) {
       return (
         <ComboboxItem
@@ -804,9 +886,18 @@ export function BranchToolbarBranchSelector({
           onClick={() => selectPickerItem(itemValue)}
         >
           <span className="truncate">
-            <T>
-              Create new ref &quot;<Var>{newRefName}</Var>&quot;
-            </T>
+            <>
+              {terminology.kind === "git" ? (
+                <T>
+                  Create new ref &quot;<Var>{newRefName}</Var>&quot;
+                </T>
+              ) : (
+                <T>
+                  Create new <Var>{terminology.genericRefNoun}</Var> &quot;<Var>{newRefName}</Var>
+                  &quot;
+                </T>
+              )}
+            </>
           </span>
         </ComboboxItem>
       );
@@ -841,116 +932,131 @@ export function BranchToolbarBranchSelector({
   }
 
   return (
-    <BranchPicker
-      items={branchPickerItems}
-      filteredItems={filteredBranchPickerItems}
-      open={isBranchMenuOpen}
-      onOpenChange={handleOpenChange}
-      onSelectItem={selectPickerItem}
-      value={resolvedActiveBranch}
-      query={branchQuery}
-      onQueryChange={setBranchQuery}
-      hasNextPage={hasNextPage}
-      isFetchingNextPage={isFetchingNextPage}
-      onLoadNext={branchRefState.loadNext}
-      statusText={branchStatusText}
-      notice={
-        refs.some((refName) => isWorktreeChangeBlockedForRef(refName))
-          ? messages(WORKTREE_CHANGE_BLOCKED_MESSAGE)
-          : null
-      }
-      renderItem={renderPickerItem}
-      getItemType={(item) =>
-        item === checkoutPullRequestItemValue
-          ? "checkout-pull-request"
-          : item === createBranchItemValue
-            ? "create-branch"
-            : "branch"
-      }
-      originControl={
-        isSelectingWorktreeBase
-          ? { checked: startFromOrigin, onCheckedChange: onStartFromOriginChange }
-          : undefined
-      }
-      popupProps={{
-        align: displayMode === "panel" ? "start" : "end",
-        side: displayMode === "panel" ? "bottom" : "top",
-        className: cn("flex flex-col", displayMode === "panel" ? "w-(--anchor-width)" : "w-80"),
-        ...(displayMode === "toolbar" ? composerFloatingLayerProps : {}),
-      }}
-    >
-      <div
-        className={cn(
-          "flex min-w-0",
-          displayMode === "panel" ? "w-full flex-col items-stretch" : "items-center gap-1",
-          className,
-        )}
+    <VcsTerminologyContext value={terminology}>
+      <BranchPicker
+        items={branchPickerItems}
+        filteredItems={filteredBranchPickerItems}
+        open={isBranchMenuOpen}
+        onOpenChange={handleOpenChange}
+        onSelectItem={selectPickerItem}
+        value={resolvedActiveBranch}
+        query={branchQuery}
+        onQueryChange={setBranchQuery}
+        hasNextPage={hasNextPage}
+        isFetchingNextPage={isFetchingNextPage}
+        onLoadNext={branchRefState.loadNext}
+        statusText={branchStatusText}
+        notice={
+          refs.some((refName) => isWorktreeChangeBlockedForRef(refName))
+            ? terminology.kind === "git"
+              ? gt("Stop the current turn to switch worktrees.")
+              : gt("Stop the current turn to switch {workspaces}.", {
+                  workspaces: terminology.workspaceNounPlural,
+                })
+            : null
+        }
+        renderItem={renderPickerItem}
+        getItemType={(item) =>
+          item === checkoutPullRequestItemValue
+            ? "checkout-pull-request"
+            : item === createBranchItemValue
+              ? "create-branch"
+              : "branch"
+        }
+        originControl={
+          isSelectingWorktreeBase
+            ? { checked: startFromOrigin, onCheckedChange: onStartFromOriginChange }
+            : undefined
+        }
+        popupProps={{
+          align: displayMode === "panel" ? "start" : "end",
+          side: displayMode === "panel" ? "bottom" : "top",
+          className: cn("flex flex-col", displayMode === "panel" ? "w-(--anchor-width)" : "w-80"),
+          ...(displayMode === "toolbar" ? composerFloatingLayerProps : {}),
+        }}
       >
-        {displayMode !== "panel" ? (
-          <ThreadPullRequestBadgeControl
-            render={<ComposerControl size="xs" />}
-            badge={prBadge}
-            pullRequests={serverThread?.pullRequests ?? []}
-            number={prNumber}
-            url={prUrl}
-            status={prStatus}
-            onOpenList={() => useRightPanelStore.getState().open(threadRef, "pull-requests")}
-            onOpenPullRequest={(event, targetUrl = prUrl) => {
-              if (targetUrl) openPrLink(event, targetUrl);
-            }}
-          />
-        ) : null}
-        <span
-          className="flex min-w-0"
-          onMouseDownCapture={(event) => {
-            if (event.button !== 0 || event.ctrlKey) {
-              event.stopPropagation();
-            }
-          }}
-          onContextMenu={(event) => handleBranchContextMenu(event, resolvedActiveBranch)}
+        <div
+          className={cn(
+            "flex min-w-0",
+            displayMode === "panel" ? "w-full flex-col items-stretch" : "items-center gap-1",
+            className,
+          )}
         >
-          <ComboboxTrigger
-            render={
-              displayMode === "panel" ? (
-                <ThreadDetailsControl part="select" />
-              ) : (
-                <ComposerControl size="xs" />
-              )
-            }
-            className="min-w-0 max-w-full active:scale-100"
-            disabled={!vcsActionsSupported || isInitialBranchesLoadPending || isBranchActionPending}
-            // NVDA browse mode re-reads a combobox when its attributes change, not when its text does.
-            aria-label={gt("Branch: {branch}", { branch: triggerLabel })}
-          >
-            <GitBranchIcon
-              className={cn(
-                "size-3 shrink-0",
-                displayMode === "panel" && THREAD_DETAILS_PANEL_ICON_CLASS,
-              )}
+          {displayMode !== "panel" ? (
+            <ThreadPullRequestBadgeControl
+              render={<ComposerControl size="xs" />}
+              badge={prBadge}
+              pullRequests={serverThread?.pullRequests ?? []}
+              number={prNumber}
+              url={prUrl}
+              status={prStatus}
+              onOpenList={() => useRightPanelStore.getState().open(threadRef, "pull-requests")}
+              onOpenPullRequest={(event, targetUrl = prUrl) => {
+                if (targetUrl) openPrLink(event, targetUrl);
+              }}
             />
-            <ComposerContextLabel displayMode={displayMode}>
-              <MiddleTruncate
-                value={triggerLabel}
-                variant="cap-aligned"
-                className="w-full"
-                aria-hidden
+          ) : null}
+          <span
+            className="flex min-w-0"
+            onMouseDownCapture={(event) => {
+              if (event.button !== 0 || event.ctrlKey) {
+                event.stopPropagation();
+              }
+            }}
+            onContextMenu={(event) => handleBranchContextMenu(event, resolvedActiveBranch)}
+          >
+            <ComboboxTrigger
+              render={
+                displayMode === "panel" ? (
+                  <ThreadDetailsControl part="select" />
+                ) : (
+                  <ComposerControl size="xs" />
+                )
+              }
+              className="min-w-0 max-w-full active:scale-100"
+              disabled={
+                !vcsActionsSupported || isInitialBranchesLoadPending || isBranchActionPending
+              }
+              // NVDA browse mode re-reads a combobox when its attributes change, not when its text does.
+              aria-label={
+                terminology.kind === "git"
+                  ? gt("Branch: {branch}", { branch: triggerLabel })
+                  : gt("{ref}: {branch}", {
+                      ref: terminology.refNounTitle,
+                      branch: triggerLabel,
+                    })
+              }
+            >
+              <GitBranchIcon
+                className={cn(
+                  "size-3 shrink-0",
+                  displayMode === "panel" && THREAD_DETAILS_PANEL_ICON_CLASS,
+                )}
               />
-            </ComposerContextLabel>
-          </ComboboxTrigger>
-        </span>
-        {displayMode === "panel" ? (
-          <ThreadDetailsThreadPrRows
-            threadRef={threadRef}
-            project={activeProject}
-            branchPr={branchPr}
-            branchSourceControlProvider={branchStatusQuery.data?.sourceControlProvider}
-            onActed={() => branchStatusQuery.refresh()}
-          />
-        ) : null}
-        {displayMode === "panel" ? (
-          <ThreadDetailsIssueRows links={linkedIssues} threadRef={threadRef} />
-        ) : null}
-      </div>
-    </BranchPicker>
+              <ComposerContextLabel displayMode={displayMode}>
+                <MiddleTruncate
+                  value={triggerLabel}
+                  variant="cap-aligned"
+                  className="w-full"
+                  aria-hidden
+                />
+              </ComposerContextLabel>
+            </ComboboxTrigger>
+          </span>
+          {displayMode === "panel" ? (
+            <ThreadDetailsThreadPrRows
+              threadRef={threadRef}
+              project={activeProject}
+              branchPr={branchPr}
+              branchSourceControlProvider={branchStatusQuery.data?.sourceControlProvider}
+              onActed={() => branchStatusQuery.refresh()}
+            />
+          ) : null}
+          {displayMode === "panel" ? (
+            <ThreadDetailsIssueRows links={linkedIssues} threadRef={threadRef} />
+          ) : null}
+        </div>
+      </BranchPicker>
+    </VcsTerminologyContext>
   );
 }

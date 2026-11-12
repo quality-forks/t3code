@@ -1,12 +1,15 @@
+import { useGT } from "gt-react";
+import { useMessages as useVcsMessages } from "gt-react";
+import { msg as vcsMsg } from "gt-react";
 import type { EnvironmentId } from "@t3tools/contracts";
-import { useGT, useMessages } from "gt-react";
+import { useMessages } from "gt-react";
 import { ChevronDownIcon, GitBranchIcon } from "lucide-react";
 import { useState } from "react";
 
 import { usePaginatedBranches } from "../state/queries";
 import { useEnvironmentQuery } from "../state/query";
 import { useAtomCommand } from "../state/use-atom-command";
-import { vcsEnvironment } from "../state/vcs";
+import { useVcsTerminology, VcsTerminologyContext, vcsEnvironment } from "../state/vcs";
 import { BranchPicker, BranchPickerRefItem } from "./BranchPicker";
 import { resolveBranchTriggerLabel, sanitizeNewRefName } from "./BranchToolbar.logic";
 import { MiddleTruncate } from "./ui/middle-truncate";
@@ -32,8 +35,10 @@ export function WorktreeBaseBranchPicker({
   disabled?: boolean;
   id?: string;
 }) {
+  const vcsMessage = useVcsMessages();
   const gt = useGT();
   const messages = useMessages();
+  const terminology = useVcsTerminology(environmentId, cwd);
   const [open, setOpen] = useState(false);
   const [query, setQuery] = useState("");
   const refreshLocalStatusForPicker = useAtomCommand(vcsEnvironment.refreshLocalStatusForPicker, {
@@ -74,17 +79,31 @@ export function WorktreeBaseBranchPicker({
   const statusText =
     branches.error ??
     (branches.isPending && branches.data === null
-      ? gt("Loading refs...")
+      ? terminology.kind === "git"
+        ? gt("Loading refs...")
+        : vcsMessage(vcsMsg("Loading {value0}...", { value0: terminology.genericRefNounPlural }))
       : branches.isFetchingNextPage
-        ? gt("Loading more refs...")
-        : hasNextPage
-          ? gt(
-              "{total, plural, one {Showing {shown} of {total} refs} other {Showing {shown} of {total} refs}}",
-              {
-                shown: branches.refs.length,
-                total: String(branches.data?.totalCount),
-              },
+        ? terminology.kind === "git"
+          ? gt("Loading more refs...")
+          : vcsMessage(
+              vcsMsg("Loading more {value0}...", { value0: terminology.genericRefNounPlural }),
             )
+        : hasNextPage
+          ? terminology.kind === "git"
+            ? gt(
+                "{total, plural, one {Showing {shown} of {total} refs} other {Showing {shown} of {total} refs}}",
+                {
+                  shown: branches.refs.length,
+                  total: String(branches.data?.totalCount),
+                },
+              )
+            : vcsMessage(
+                vcsMsg("Showing {value0} of {value1} {value2}", {
+                  value0: branches.refs.length,
+                  value1: branches.data?.totalCount,
+                  value2: terminology.genericRefNounPlural,
+                }),
+              )
           : null);
   const handleOpenChange = (next: boolean) => {
     setOpen(next);
@@ -94,49 +113,51 @@ export function WorktreeBaseBranchPicker({
     if (!next) setQuery("");
   };
   return (
-    <BranchPicker
-      items={items}
-      filteredItems={items}
-      value={value || null}
-      query={query}
-      onQueryChange={setQuery}
-      open={open && !disabled}
-      onOpenChange={handleOpenChange}
-      onSelectItem={(name) => {
-        onValueChange(name);
-        handleOpenChange(false);
-      }}
-      hasNextPage={hasNextPage}
-      isFetchingNextPage={branches.isFetchingNextPage}
-      onLoadNext={branches.loadNext}
-      statusText={statusText}
-      originControl={{ checked: startFromOrigin, onCheckedChange: onStartFromOriginChange }}
-      popupProps={{ align: "start", side: "bottom", className: "flex w-80 flex-col" }}
-      renderItem={(name, index) => {
-        const branch = branchByName.get(name);
-        return branch ? (
-          <BranchPickerRefItem
-            branch={branch}
-            projectCwd={cwd}
-            index={index}
-            onClick={() => {
-              onValueChange(branch.name);
-              handleOpenChange(false);
-            }}
-          />
-        ) : null;
-      }}
-    >
-      <ComboboxTrigger
-        id={id}
-        disabled={disabled || !cwd}
-        render={<Button variant="outline" size="sm" />}
-        className="w-full justify-between "
+    <VcsTerminologyContext value={terminology}>
+      <BranchPicker
+        items={items}
+        filteredItems={items}
+        value={value || null}
+        query={query}
+        onQueryChange={setQuery}
+        open={open && !disabled}
+        onOpenChange={handleOpenChange}
+        onSelectItem={(name) => {
+          onValueChange(name);
+          handleOpenChange(false);
+        }}
+        hasNextPage={hasNextPage}
+        isFetchingNextPage={branches.isFetchingNextPage}
+        onLoadNext={branches.loadNext}
+        statusText={statusText}
+        originControl={{ checked: startFromOrigin, onCheckedChange: onStartFromOriginChange }}
+        popupProps={{ align: "start", side: "bottom", className: "flex w-80 flex-col" }}
+        renderItem={(name, index) => {
+          const branch = branchByName.get(name);
+          return branch ? (
+            <BranchPickerRefItem
+              branch={branch}
+              projectCwd={cwd}
+              index={index}
+              onClick={() => {
+                onValueChange(branch.name);
+                handleOpenChange(false);
+              }}
+            />
+          ) : null;
+        }}
       >
-        <GitBranchIcon className="size-3.5 shrink-0 text-muted-foreground" />
-        <MiddleTruncate value={label} className="flex-1 text-left" />
-        <ChevronDownIcon className="size-3.5 shrink-0 text-muted-foreground" />
-      </ComboboxTrigger>
-    </BranchPicker>
+        <ComboboxTrigger
+          id={id}
+          disabled={disabled || !cwd}
+          render={<Button variant="outline" size="sm" />}
+          className="w-full justify-between "
+        >
+          <GitBranchIcon className="size-3.5 shrink-0 text-muted-foreground" />
+          <MiddleTruncate value={label} className="flex-1 text-left" />
+          <ChevronDownIcon className="size-3.5 shrink-0 text-muted-foreground" />
+        </ComboboxTrigger>
+      </BranchPicker>
+    </VcsTerminologyContext>
   );
 }

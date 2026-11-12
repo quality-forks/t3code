@@ -27,11 +27,11 @@ import { AsyncResult } from "effect/reactivity";
 import { appAtomRegistry } from "../rpc/atomRegistry";
 import { m } from "../i18n/messages";
 import { gitEnvironment } from "./git";
-import { useEnvironmentQuery } from "./query";
+import { useEnvironmentQuery, useEnvironmentQuerySelector } from "./query";
 import { readEnvironmentScope, useEnvironmentScope } from "./session";
 import { sourceControlEnvironment } from "./sourceControl";
 import { useAtomCommand } from "./use-atom-command";
-import { vcsActionManager, vcsEnvironment } from "./vcs";
+import { selectVcsActionsSupported, vcsActionManager, vcsEnvironment } from "./vcs";
 import { suggestAppAccessForRemote } from "../components/sourceControlAppAccessToast";
 
 export type SourceControlActionKind =
@@ -83,7 +83,17 @@ function useAction<
   readonly onSuccess?: () => void;
   readonly managedExternally?: boolean;
 }): SourceControlActionState<TArgs, R> {
-  const isAllowed = useEnvironmentScope(input.scope.environmentId, AuthSourceControlWriteScope);
+  const canWrite = useEnvironmentScope(input.scope.environmentId, AuthSourceControlWriteScope);
+  const actionsSupported = useEnvironmentQuerySelector(
+    input.scope.environmentId === null || input.scope.cwd === null
+      ? null
+      : vcsEnvironment.status({
+          environmentId: input.scope.environmentId,
+          input: { cwd: input.scope.cwd },
+        }),
+    selectVcsActionsSupported,
+  );
+  const isAllowed = canWrite && actionsSupported;
   const operation = ACTION_OPERATION[input.kind];
   const state = useAtomValue(vcsActionManager.stateAtom(input.scope));
   const ownsState = state.operation === operation;
@@ -93,6 +103,17 @@ function useAction<
   };
 
   const run = async (...args: TArgs) => {
+    if (!actionsSupported) {
+      return AsyncResult.failure<never, VcsActionUnavailableError>(
+        Cause.fail(
+          new VcsActionUnavailableError({
+            operation,
+            environmentId: input.scope.environmentId,
+            cwd: input.scope.cwd,
+          }),
+        ),
+      );
+    }
     if (
       input.scope.environmentId === null ||
       !readEnvironmentScope(input.scope.environmentId, AuthSourceControlWriteScope)

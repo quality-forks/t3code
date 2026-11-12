@@ -105,6 +105,7 @@ function RestoreBranchHarness(props: {
   readonly focusComposer: () => void;
 }) {
   const lifecycle = useThreadLifecycle({
+    vcsActionsSupported: true,
     ...props.thread,
     environmentId,
     currentRouteThreadKeyRef: props.currentRouteThreadKeyRef,

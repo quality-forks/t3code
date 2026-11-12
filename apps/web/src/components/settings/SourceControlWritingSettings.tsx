@@ -1,3 +1,6 @@
+import { useMessages as useVcsMessages } from "gt-react";
+import { msg as vcsMsg } from "gt-react";
+import { useSettingsVcsTerminology } from "./useSettingsVcsTerminology";
 import { useNavigate } from "@tanstack/react-router";
 import { useRef, useState } from "react";
 import {
@@ -69,9 +72,11 @@ const MODE_OPTIONS: Record<SourceControlWritingStyleMode, { label: string; descr
   };
 
 export function SourceControlWritingSettingsSection() {
+  const vcsMessage = useVcsMessages();
   const messages = useMessages();
   const setting = useSearchableSetting();
   const gt = useGT();
+  const terminology = useSettingsVcsTerminology();
   const settings = useScopedSettings();
   const updateSettings = useUpdateScopedSettings();
   const mixedReviewGuidesEnabled = useScopedSettingsMixed(["reviewGuidesEnabled"]);
@@ -202,7 +207,14 @@ export function SourceControlWritingSettingsSection() {
   );
 
   return (
-    <SettingsSection id="source-control-text-generation" title={gt("Commits & pull requests")}>
+    <SettingsSection
+      id="source-control-text-generation"
+      title={
+        terminology.kind === "git"
+          ? gt("Commits & pull requests")
+          : vcsMessage(vcsMsg("{value0}s & pull requests", { value0: terminology.changeNounTitle }))
+      }
+    >
       <SettingsRow
         serverScoped
         settingKeys={["sourceControlWritingStyle"]}
@@ -212,7 +224,15 @@ export function SourceControlWritingSettingsSection() {
         resetAction={
           isSourceControlWritingStyleDirty ? (
             <SettingResetButton
-              ariaLabel={gt("Reset commit and pull request writing to default")}
+              ariaLabel={
+                terminology.kind === "git"
+                  ? gt("Reset commit and pull request writing to default")
+                  : vcsMessage(
+                      vcsMsg("{value0} and pull request writing", {
+                        value0: terminology.changeNoun,
+                      }),
+                    )
+              }
               onClick={() =>
                 updateSettings({
                   sourceControlWritingStyle: {
@@ -266,9 +286,18 @@ export function SourceControlWritingSettingsSection() {
                   value={allInstructions ?? ""}
                   onChange={(event) => setAllInstructions(event.target.value)}
                   rows={4}
-                  aria-label={gt(
-                    "Custom commit and pull request instructions for all selected environments",
-                  )}
+                  aria-label={
+                    terminology.kind === "git"
+                      ? gt(
+                          "Custom commit and pull request instructions for all selected environments",
+                        )
+                      : vcsMessage(
+                          vcsMsg(
+                            "Custom {value0} and pull request instructions for all selected environments",
+                            { value0: terminology.changeNoun },
+                          ),
+                        )
+                  }
                   placeholder={gt("Write the instructions each selected environment should use.")}
                 />
                 <Button
@@ -315,10 +344,27 @@ export function SourceControlWritingSettingsSection() {
                 }
               }}
               rows={4}
-              placeholder={gt(
-                "Keep commit subjects under 60 characters. Keep pull request descriptions short and plain.",
-              )}
-              aria-label={gt("Custom commit and pull request instructions")}
+              placeholder={
+                terminology.kind === "git"
+                  ? gt(
+                      "Keep commit subjects under 60 characters. Keep pull request descriptions short and plain.",
+                    )
+                  : vcsMessage(
+                      vcsMsg(
+                        "Keep {value0} subjects under 60 characters. Keep pull request descriptions short and plain.",
+                        { value0: terminology.changeNoun },
+                      ),
+                    )
+              }
+              aria-label={
+                terminology.kind === "git"
+                  ? gt("Custom commit and pull request instructions")
+                  : vcsMessage(
+                      vcsMsg("Custom {value0} and pull request instructions", {
+                        value0: terminology.changeNoun,
+                      }),
+                    )
+              }
             />
           </div>
         ) : null}

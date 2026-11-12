@@ -1,3 +1,6 @@
+import { useMessages as useVcsMessages } from "gt-react";
+import { msg as vcsMsg } from "gt-react";
+import { VcsTerminologyContext } from "../../state/vcs";
 import { resolvePullRequestDetailChecks } from "@t3tools/client-runtime/pull-request-checks";
 import { sourceControlClients } from "@t3tools/client-runtime/source-control-clients";
 import { changeRequestTermKind } from "../pullRequest/changeRequestTerm";
@@ -17,7 +20,7 @@ import {
   TriangleAlertIcon,
 } from "lucide-react";
 import { AsyncResult } from "effect/reactivity";
-import { useState, type MouseEvent as ReactMouseEvent } from "react";
+import { useContext, useState, type MouseEvent as ReactMouseEvent } from "react";
 
 import type { ComposerThreadTarget } from "~/composerDraftStore";
 import { useLiveRefresh } from "~/hooks/useLiveRefresh";
@@ -111,8 +114,10 @@ export function ThreadDetailsPrRow({
   /** Fix and Resolve write here instead of checking the pull request out in a new thread. */
   composerTarget?: ComposerThreadTarget | undefined;
 }) {
+  const vcsMessage = useVcsMessages();
   const gt = useGT();
   const m = useMessages();
+  const vcsTerminology = useContext(VcsTerminologyContext);
   const serverConfigs = useServerConfigs();
   const supportsPullRequests = serverConfigs.get(environmentId) !== undefined;
   const repository = sourceControlClients.repositorySelector(project?.repositoryIdentity);
@@ -224,6 +229,7 @@ export function ThreadDetailsPrRow({
         headBranch: detail.headBranch,
         baseBranch: detail.baseBranch,
         inThisThread: composerTarget !== undefined,
+        refNoun: vcsTerminology.refNoun,
       }),
     });
   };
@@ -245,6 +251,7 @@ export function ThreadDetailsPrRow({
         checks: detail.checks,
         commentsTruncated: false,
         inThisThread: composerTarget !== undefined,
+        refNoun: vcsTerminology.refNoun,
       }),
     );
   };
@@ -400,7 +407,13 @@ export function ThreadDetailsPrRow({
           suffix: newThreadSuffix,
           tooltip:
             composerTarget === undefined
-              ? gt("Check the branch out and resolve the conflicts in a new thread")
+              ? vcsTerminology.kind === "git"
+                ? gt("Check the branch out and resolve the conflicts in a new thread")
+                : vcsMessage(
+                    vcsMsg("Check the {value0} out and resolve the conflicts in a new thread", {
+                      value0: vcsTerminology.refNoun,
+                    }),
+                  )
               : gt("Resolve the conflicts in this thread"),
           onClick: startResolveConflicts,
         }

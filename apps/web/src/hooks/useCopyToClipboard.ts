@@ -241,7 +241,7 @@ export function useCopyToClipboard<TContext = void>({
   extraFlavors,
 }: {
   timeout?: number;
-  target?: ClipboardTarget;
+  target?: ClipboardTarget | ((ctx: TContext) => ClipboardTarget);
   onCopy?: (ctx: TContext) => void;
   onError?: (error: Error, ctx: TContext) => void;
   extraFlavors?: Readonly<Record<string, string>>;
@@ -263,7 +263,12 @@ export function useCopyToClipboard<TContext = void>({
       flavors: Readonly<Record<string, string>> | undefined = extraFlavors,
       options?: { requireHtml?: boolean },
     ): void => {
-      void writeTextToClipboard(value, target, flavors, options).then(
+      void writeTextToClipboard(
+        value,
+        typeof target === "function" ? target(ctx) : target,
+        flavors,
+        options,
+      ).then(
         (didCopy) => {
           if (!didCopy) return;
           if (timeoutIdRef.current) {

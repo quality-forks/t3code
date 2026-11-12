@@ -1,3 +1,5 @@
+import { useMessages as useVcsMessages } from "gt-react";
+import { msg as vcsMsg } from "gt-react";
 import { localizedVcsTerminology } from "@t3tools/client-runtime/state/vcs";
 import { resolveVcsUnsupportedReason } from "@t3tools/shared/vcs";
 import { thrownErrorMessage } from "@t3tools/client-runtime/errors";
@@ -1020,6 +1022,7 @@ function CheckoutGitActionsControl({
   onOpenChanges,
   workspaceMutationId = null,
 }: GitActionsControlProps) {
+  const vcsMessage = useVcsMessages();
   const gt = useGT();
   const messages = useMessages();
   const progressLabelId = useId();
@@ -1119,7 +1122,7 @@ function CheckoutGitActionsControl({
   const changesBreakdown = resolvedChangesTotals?.breakdown ?? null;
   const changesBaseLabel = resolvedChangesTotals
     ? resolvedChangesTotals.baseRef === null
-      ? gt("Uncommitted")
+      ? vcsTerminology.workingTreeDiffLabel
       : gt("vs {ref}", { ref: resolvedChangesTotals.baseRef })
     : null;
 
@@ -1173,8 +1176,8 @@ function CheckoutGitActionsControl({
           action: pendingDefaultBranchAction.action,
           branchName: pendingDefaultBranchAction.branchName,
           includesCommit: pendingDefaultBranchAction.includesCommit,
-          vcsTerminology,
           terminology: changeRequestTerminology,
+          vcsTerminology,
         },
         messages,
       )
@@ -1556,9 +1559,11 @@ function CheckoutGitActionsControl({
       {isDetachedHead && (
         <p className="px-2 py-1.5 text-xs text-warning">
           {vcsTerminology.kind === "git"
-            ? gt(
-                "Detached HEAD: create and check out a branch to enable push and {term, select, mr {merge request} cr {change request} other {pull request}} actions.",
-                { term: changeRequestTermKind(changeRequestTerminology) },
+            ? m(
+                gt(
+                  "Detached HEAD: create and check out a branch to enable push and {term, select, mr {merge request} cr {change request} other {pull request}} actions.",
+                  { term: changeRequestTermKind(changeRequestTerminology) },
+                ),
               )
             : vcsTerminology.noRefActionsNotice(changeRequestTerminology.singular)}
         </p>
@@ -1597,7 +1602,18 @@ function CheckoutGitActionsControl({
         <div
           role="group"
           aria-label={
-            target ? gt("Git actions for {name}", { name: target.name }) : gt("Git actions")
+            vcsTerminology.kind === "git"
+              ? target
+                ? gt("Git actions for {name}", { name: target.name })
+                : gt("Git actions")
+              : target
+                ? vcsMessage(
+                    vcsMsg("{system} actions for {name}", {
+                      system: vcsTerminology.systemName,
+                      name: target.name,
+                    }),
+                  )
+                : vcsMessage(vcsMsg("{value0} actions", { value0: vcsTerminology.systemName }))
           }
           ref={panelAnchorRef}
           onPointerEnter={hasGitMenuContent ? undefined : refreshStatusForEmptyMenu}
@@ -1704,7 +1720,15 @@ function CheckoutGitActionsControl({
                       <MenuTrigger
                         render={
                           <ThreadDetailsControl
-                            aria-label={gt("Git action options")}
+                            aria-label={
+                              vcsTerminology.kind === "git"
+                                ? gt("Git action options")
+                                : vcsMessage(
+                                    vcsMsg("{value0} action options", {
+                                      value0: vcsTerminology.systemName,
+                                    }),
+                                  )
+                            }
                             data-toolbar-control=""
                             size="sm"
                             variant="ghost"
@@ -1722,7 +1746,15 @@ function CheckoutGitActionsControl({
                     />
                   </TooltipTrigger>
                   <TooltipPopup side="top">
-                    <T>Git action options</T>
+                    <>
+                      {vcsTerminology.kind === "git" ? (
+                        <T>Git action options</T>
+                      ) : (
+                        <T>
+                          <Var>{vcsTerminology.systemName}</Var> action options
+                        </T>
+                      )}
+                    </>
                   </TooltipPopup>
                 </Tooltip>
                 <MenuPopup align="end" anchor={panelAnchorRef} className="w-(--anchor-width)">
@@ -1815,7 +1847,12 @@ function CheckoutGitActionsControl({
         <DialogPopup>
           <DialogHeader>
             <DialogTitle>{messages(COMMIT_DIALOG_TITLE)}</DialogTitle>
-            <DialogDescription>{messages(COMMIT_DIALOG_DESCRIPTION)}</DialogDescription>
+            <DialogDescription>
+              {messages(COMMIT_DIALOG_DESCRIPTION)}
+              {vcsTerminology.hooksNotice
+                ? vcsMessage(vcsMsg(" {value0}", { value0: vcsTerminology.hooksNotice }))
+                : null}
+            </DialogDescription>
           </DialogHeader>
           <DialogPanel>
             <div className="space-y-3 rounded-xl bg-zinc-25 p-3 text-sm ring-1 ring-black/5 dark:bg-white/[0.035] dark:ring-white/5">
@@ -1825,15 +1862,23 @@ function CheckoutGitActionsControl({
                 </span>
                 <span className="min-w-0 truncate font-medium">{target?.name}</span>
                 <span className="text-muted-foreground">
-                  <T context="git branch">Branch</T>
+                  {vcsTerminology.kind === "git" ? (
+                    <T context="git branch">Branch</T>
+                  ) : (
+                    vcsTerminology.refNounTitle
+                  )}
                 </span>
                 <span className="flex items-center justify-between gap-2">
                   <span className="font-medium">
-                    {gitStatusForActions?.refName ?? gt("(detached HEAD)")}
+                    {gitStatusForActions?.refName ?? vcsTerminology.noRefDisplay}
                   </span>
                   {isDefaultRef && (
                     <span className="text-right text-warning">
-                      <T>Default branch</T>
+                      {vcsTerminology.kind === "git" ? (
+                        <T>Default branch</T>
+                      ) : (
+                        vcsTerminology.defaultRefLabel
+                      )}
                     </span>
                   )}
                 </span>
@@ -1991,7 +2036,11 @@ function CheckoutGitActionsControl({
               disabled={!canCreateFeatureBranch || noneSelected}
               onClick={runDialogActionOnNewBranch}
             >
-              <T>Commit on new branch</T>
+              {vcsTerminology.kind === "git" ? (
+                <T>Commit on new branch</T>
+              ) : (
+                vcsTerminology.changeOnNewRefLabel
+              )}
             </Button>
             <Button
               size="sm"
@@ -2025,7 +2074,12 @@ function CheckoutGitActionsControl({
         <DialogPopup className="max-w-xl">
           <DialogHeader>
             <DialogTitle>
-              {pendingDefaultBranchActionCopy?.title ?? gt("Run action on default branch?")}
+              {pendingDefaultBranchActionCopy?.title ??
+                (vcsTerminology.kind === "git"
+                  ? gt("Run action on default branch?")
+                  : vcsMessage(
+                      vcsMsg("Run action on default {value0}?", { value0: vcsTerminology.refNoun }),
+                    ))}
             </DialogTitle>
             <DialogDescription>{pendingDefaultBranchActionCopy?.description}</DialogDescription>
             {featureBranchUnavailableReason && (
@@ -2056,7 +2110,11 @@ function CheckoutGitActionsControl({
               onClick={() => continuePendingDefaultBranchAction(true)}
               disabled={!canCreateFeatureBranch || featureBranchUnavailableReason !== null}
             >
-              <T>Check out feature branch & continue</T>
+              {vcsTerminology.kind === "git" ? (
+                <T>Check out feature branch &amp; continue</T>
+              ) : (
+                vcsTerminology.featureCheckoutLabel("web")
+              )}
             </Button>
           </DialogFooter>
         </DialogPopup>

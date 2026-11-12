@@ -28,7 +28,10 @@ vi.mock("./session", () => ({
   readEnvironmentScope: (environmentId: string, scope: string) =>
     state.scopes.get(environmentId)?.has(scope) === true,
 }));
-vi.mock("./query", () => ({ useEnvironmentQuery: () => ({ refresh: () => {} }) }));
+vi.mock("./query", () => ({
+  useEnvironmentQuery: () => ({ refresh: () => {} }),
+  useEnvironmentQuerySelector: () => true,
+}));
 vi.mock("./use-atom-command", () => ({
   useAtomCommand:
     (command: { action: string; environmentId?: string }) =>
@@ -41,6 +44,7 @@ vi.mock("./use-atom-command", () => ({
     },
 }));
 vi.mock("./vcs", () => ({
+  selectVcsActionsSupported: () => true,
   vcsEnvironment: { init: { action: "init" }, pull: { action: "pull" }, status: () => "status" },
   vcsActionManager: {
     stateAtom: () => "state",

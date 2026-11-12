@@ -15,6 +15,7 @@ import type {
   ScopedThreadRef,
 } from "@t3tools/contracts";
 import { msg } from "gt-react";
+import { useVcsTerminology } from "../../state/vcs";
 import { useRef, useState } from "react";
 import {
   sourceControlClients,
@@ -342,6 +343,7 @@ export function usePullRequestHandoffs({
   environmentId: EnvironmentId;
   detail: PullRequestHandoffDetail | null;
 }) {
+  const vcsTerminology = useVcsTerminology(environmentId, detail?.workspaceRoot ?? null);
   const newThread = useNewThreadHandler();
   const prepareThread = usePreparePullRequestThreadAction({
     environmentId,
@@ -468,6 +470,7 @@ export function usePullRequestHandoffs({
         ),
         description: checkoutFailureDescription(
           isAtomCommandInterrupted(prepared) ? undefined : squashAtomCommandFailure(prepared),
+          vcsTerminology,
         ),
       });
       return;
@@ -490,10 +493,15 @@ export function usePullRequestHandoffs({
         type: "error",
         title: m(msg("Checked out, but the thread stayed where it was")),
         description: m(
-          msg(
-            "The checkout is ready on `{branch}`. Point a thread at it from the branch picker, then ask again.",
-            { branch: prepared.value.branch },
-          ),
+          vcsTerminology.kind === "git"
+            ? msg(
+                "The checkout is ready on `{branch}`. Point a thread at it from the branch picker, then ask again.",
+                { branch: prepared.value.branch },
+              )
+            : msg(
+                "The checkout is ready on `{branch}`. Point a thread at it from the {ref} picker, then ask again.",
+                { branch: prepared.value.branch, ref: vcsTerminology.refNoun },
+              ),
         ),
       });
       return;
@@ -516,20 +524,32 @@ export function usePullRequestHandoffs({
               description:
                 mode === "local"
                   ? m(
-                      msg(
-                        "This repository is on the {term, select, mr {merge request} cr {change request} other {pull request}}'s branch, with a thread open on it.",
-                        {
-                          term: changeRequestTermKind(terminology),
-                        },
-                      ),
+                      vcsTerminology.kind === "git"
+                        ? msg(
+                            "This repository is on the {term, select, mr {merge request} cr {change request} other {pull request}}'s branch, with a thread open on it.",
+                            { term: changeRequestTermKind(terminology) },
+                          )
+                        : msg(
+                            "This repository is on the {term, select, mr {merge request} cr {change request} other {pull request}}'s {ref}, with a thread open on it.",
+                            {
+                              term: changeRequestTermKind(terminology),
+                              ref: vcsTerminology.refNoun,
+                            },
+                          ),
                     )
                   : m(
-                      msg(
-                        "The {term, select, mr {merge request} cr {change request} other {pull request}} is in its own worktree, with a thread open on it.",
-                        {
-                          term: changeRequestTermKind(terminology),
-                        },
-                      ),
+                      vcsTerminology.kind === "git"
+                        ? msg(
+                            "The {term, select, mr {merge request} cr {change request} other {pull request}} is in its own worktree, with a thread open on it.",
+                            { term: changeRequestTermKind(terminology) },
+                          )
+                        : msg(
+                            "The {term, select, mr {merge request} cr {change request} other {pull request}} is in its own {workspace}, with a thread open on it.",
+                            {
+                              term: changeRequestTermKind(terminology),
+                              workspace: vcsTerminology.workspaceNoun,
+                            },
+                          ),
                     ),
             }
           : offHeadPullRequestCheckoutToast(terminology),

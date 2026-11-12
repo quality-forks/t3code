@@ -1,4 +1,8 @@
+import { useMessages as useVcsMessages } from "gt-react";
+import { msg as vcsMsg } from "gt-react";
+import { VcsTerminologyContext } from "../../state/vcs";
 import {
+  useContext,
   memo,
   useEffect,
   useState,
@@ -263,8 +267,10 @@ export const ComposerPrimaryActions = memo(function ComposerPrimaryActions({
   keepFullHistory = false,
   onToggleKeepFullHistory,
 }: ComposerPrimaryActionsProps) {
+  const vcsMessage = useVcsMessages();
   const gt = useGT();
   const m = useMessages();
+  const terminology = useContext(VcsTerminologyContext);
   const [stopPhase, setStopPhase] = useStopPhase({ runId, canInterrupt, canOperateThread });
   const pointerFocusProps = preserveComposerFocusOnPointerDown
     ? { onPointerDown: preventPointerFocus }
@@ -407,7 +413,9 @@ export const ComposerPrimaryActions = memo(function ComposerPrimaryActions({
       ? gt("Sending when ready")
       : (sendDisabledReason ??
         (isPreparingWorktree
-          ? gt("Preparing worktree")
+          ? terminology.kind === "git"
+            ? gt("Preparing worktree")
+            : vcsMessage(vcsMsg("Preparing {value0}", { value0: terminology.workspaceNoun }))
           : isSendBusy
             ? isEditingQueuedMessage
               ? gt("Updating queued message")

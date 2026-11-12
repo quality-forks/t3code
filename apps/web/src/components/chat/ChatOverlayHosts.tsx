@@ -1,3 +1,5 @@
+import { useContext } from "react";
+import { VcsTerminologyContext } from "../../state/vcs";
 import type {
   DeviceServiceState,
   EnvironmentId,
@@ -150,6 +152,7 @@ export function BranchRestoreConfirmHost(props: {
   readonly canWriteSourceControl: boolean;
   readonly onConfirm: () => void;
 }) {
+  const terminology = useContext(VcsTerminologyContext);
   const open = useThreadOverlay(branchRestoreConfirmAtom, props.threadKey) !== null;
   return (
     <AlertDialog
@@ -170,10 +173,14 @@ export function BranchRestoreConfirmHost(props: {
             </T>
           </AlertDialogTitle>
           <AlertDialogDescription>
-            <T>
-              You have uncommitted changes. They'll carry over to the other branch, or block the
-              switch if they conflict.
-            </T>
+            {terminology.kind === "git" ? (
+              <T>
+                You have uncommitted changes. They'll carry over to the other branch, or block the
+                switch if they conflict.
+              </T>
+            ) : (
+              terminology.refSwitchChangesDescription
+            )}
           </AlertDialogDescription>
         </AlertDialogHeader>
         <AlertDialogFooter>
@@ -188,7 +195,15 @@ export function BranchRestoreConfirmHost(props: {
               props.onConfirm();
             }}
           >
-            <T>Switch branch</T>
+            <>
+              {terminology.kind === "git" ? (
+                <T>Switch branch</T>
+              ) : (
+                <T>
+                  Switch <Var>{terminology.refNoun}</Var>
+                </T>
+              )}
+            </>
           </Button>
         </AlertDialogFooter>
       </AlertDialogPopup>

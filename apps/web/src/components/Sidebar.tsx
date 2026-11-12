@@ -1,6 +1,9 @@
+import { useMessages as useVcsMessages } from "gt-react";
+import { msg as vcsMsg } from "gt-react";
 import { thrownErrorMessage } from "@t3tools/client-runtime/errors";
 import { msg, T, useGT, useMessages } from "gt-react";
 import { m } from "../i18n/messages";
+import { readVcsTerminology } from "../state/vcs";
 import { attachSidebarTree } from "../lib/sidebarTree";
 import { type EnvironmentId, type ScopedProjectRef } from "@t3tools/contracts";
 import type { EnvironmentServerConfig } from "@t3tools/client-runtime/connection";
@@ -918,6 +921,7 @@ function readRouteThreadKey(router: AnyRouter): string | null {
 }
 
 export default function Sidebar({ routeReveal }: { routeReveal: SidebarRouteReveal }) {
+  const vcsMessage = useVcsMessages();
   const gt = useGT();
   const messages = useMessages();
   const {
@@ -972,17 +976,33 @@ export default function Sidebar({ routeReveal }: { routeReveal: SidebarRouteReve
       );
     },
   });
-  const { copyToClipboard: copyBranchToClipboard } = useCopyToClipboard<{ branch: string }>({
-    target: {
-      target: "branch name",
-      unavailableMessage: msg("Clipboard API is unavailable while copying branch name."),
-      failureMessage: msg("Failed to copy branch name to the clipboard."),
-    },
-    onError: (error) => {
+  const { copyToClipboard: copyBranchToClipboard } = useCopyToClipboard<{
+    branch: string;
+    terminology: import("@t3tools/shared/vcs").VcsTerminology;
+  }>({
+    target: (ctx) => ({
+      target: "ref name",
+      unavailableMessage:
+        ctx.terminology.kind === "git"
+          ? vcsMsg("Clipboard API is unavailable while copying branch name.")
+          : vcsMsg("Clipboard API is unavailable while copying {value0} name.", {
+              value0: ctx.terminology.refNoun,
+            }),
+      failureMessage:
+        ctx.terminology.kind === "git"
+          ? vcsMsg("Failed to copy branch name to the clipboard.")
+          : vcsMsg("Failed to copy {value0} name to the clipboard.", {
+              value0: ctx.terminology.refNoun,
+            }),
+    }),
+    onError: (error, ctx) => {
       toastManager.add(
         stackedThreadToast({
           type: "error",
-          title: gt("Failed to copy branch"),
+          title:
+            ctx.terminology.kind === "git"
+              ? gt("Failed to copy branch")
+              : vcsMessage(vcsMsg("Failed to copy {value0}", { value0: ctx.terminology.refNoun })),
           description: thrownErrorMessage(error, m) ?? gt("An error occurred."),
         }),
       );
@@ -1278,7 +1298,7 @@ export default function Sidebar({ routeReveal }: { routeReveal: SidebarRouteReve
       const api = readLocalApi();
       if (!api) return;
       void (async () => {
-        const clicked = await settlePromise(() =>
+        const clicked = await settlePromise(async () =>
           api.contextMenu.show(
             [
               { id: "new-thread", label: gt("New thread") },
@@ -2377,7 +2397,7 @@ export default function Sidebar({ routeReveal }: { routeReveal: SidebarRouteReve
         timestampFormat,
         selectedThreads[0]!.environmentId,
       );
-      const clicked = await settlePromise(() =>
+      const clicked = await settlePromise(async () =>
         api.contextMenu.show(
           [
             ...(unpinMenuItem
@@ -2602,9 +2622,10 @@ export default function Sidebar({ routeReveal }: { routeReveal: SidebarRouteReve
         const workspacePath =
           session.worktreePath ??
           projectByKey.get(`${session.environmentId}:${session.projectId}`)?.workspaceRoot;
-        const clicked = await settlePromise(() =>
+        const clicked = await settlePromise(async () =>
           api.contextMenu.show(
             buildDraftActionMenuItems({
+              terminology: readVcsTerminology(session.environmentId, workspacePath ?? null),
               hasPath: Boolean(workspacePath),
               hasBranch: Boolean(session.branch),
               hasProject: projectGroup != null,
@@ -2626,7 +2647,11 @@ export default function Sidebar({ routeReveal }: { routeReveal: SidebarRouteReve
             if (workspacePath) copyPathToClipboard(workspacePath, { path: workspacePath });
             return;
           case "copy-branch":
-            if (session.branch) copyBranchToClipboard(session.branch, { branch: session.branch });
+            if (session.branch)
+              copyBranchToClipboard(session.branch, {
+                branch: session.branch,
+                terminology: readVcsTerminology(session.environmentId, workspacePath ?? null),
+              });
             return;
           case "discard": {
             // The menu may outlive draft promotion; discarding then would strand the send.
@@ -2690,9 +2715,15 @@ export default function Sidebar({ routeReveal }: { routeReveal: SidebarRouteReve
                 projectRef.projectId === thread.projectId,
             ),
           ) ?? null;
-        const clicked = await settlePromise(() =>
+        const clicked = await settlePromise(async () =>
           api.contextMenu.show(
             buildThreadActionMenuItems({
+              terminology: readVcsTerminology(
+                thread.environmentId,
+                thread.worktreePath ??
+                  projectByKey.get(`${thread.environmentId}:${thread.projectId}`)?.workspaceRoot ??
+                  null,
+              ),
               canOperate: readEnvironmentScope(
                 threadRef.environmentId,
                 AuthOrchestrationOperateScope,
@@ -2872,7 +2903,10 @@ export default function Sidebar({ routeReveal }: { routeReveal: SidebarRouteReve
             return;
           case "copy-branch":
             if (thread.branch) {
-              copyBranchToClipboard(thread.branch, { branch: thread.branch });
+              copyBranchToClipboard(thread.branch, {
+                branch: thread.branch,
+                terminology: readVcsTerminology(thread.environmentId, threadWorkspacePath ?? null),
+              });
             }
             return;
           case "copy-thread":

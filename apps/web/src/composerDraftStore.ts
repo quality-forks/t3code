@@ -414,6 +414,7 @@ const PersistedDraftThreadState = Schema.Struct({
   runtimeMode: RuntimeMode,
   interactionMode: ProviderInteractionMode,
   branch: Schema.NullOr(Schema.String),
+  worktreeBaseSelected: Schema.optionalKey(Schema.Boolean),
   worktreePath: Schema.NullOr(Schema.String),
   envMode: DraftThreadEnvModeSchema,
   startFromOrigin: Schema.Boolean.pipe(Schema.withDecodingDefault(Effect.succeed(false))),
@@ -514,6 +515,7 @@ export interface DraftSessionState {
   runtimeMode: RuntimeMode;
   interactionMode: ProviderInteractionMode;
   branch: string | null;
+  worktreeBaseSelected?: boolean;
   worktreePath: string | null;
   envMode: DraftThreadEnvMode;
   startFromOrigin: boolean;
@@ -588,6 +590,7 @@ interface ComposerDraftStoreState {
     options?: {
       threadId?: ThreadId;
       branch?: string | null;
+      worktreeBaseSelected?: boolean;
       worktreePath?: string | null;
       createdAt?: string;
       envMode?: DraftThreadEnvMode;
@@ -605,6 +608,7 @@ interface ComposerDraftStoreState {
     options?: {
       threadId?: ThreadId;
       branch?: string | null;
+      worktreeBaseSelected?: boolean;
       worktreePath?: string | null;
       createdAt?: string;
       envMode?: DraftThreadEnvMode;
@@ -620,6 +624,7 @@ interface ComposerDraftStoreState {
     threadRef: ComposerThreadTarget,
     options: {
       branch?: string | null;
+      worktreeBaseSelected?: boolean;
       worktreePath?: string | null;
       projectRef?: ScopedProjectRef;
       createdAt?: string;
@@ -1725,6 +1730,7 @@ function createDraftThreadState(
   options?: {
     threadId?: ThreadId;
     branch?: string | null;
+    worktreeBaseSelected?: boolean;
     worktreePath?: string | null;
     createdAt?: string;
     envMode?: DraftThreadEnvMode;
@@ -1783,6 +1789,12 @@ function createDraftThreadState(
     interactionMode:
       options?.interactionMode ?? existingThread?.interactionMode ?? DEFAULT_INTERACTION_MODE,
     branch: nextBranch,
+    worktreeBaseSelected:
+      options?.worktreeBaseSelected ??
+      (projectChanged
+        ? false
+        : (existingThread?.worktreeBaseSelected ??
+          (options?.envMode === "worktree" && options?.branch != null && !options?.worktreePath))),
     worktreePath: nextWorktreePath,
     envMode:
       options?.envMode ?? (nextWorktreePath ? "worktree" : (existingThread?.envMode ?? "local")),
@@ -1848,6 +1860,7 @@ function draftThreadsEqual(left: DraftThreadState | undefined, right: DraftThrea
     left.runtimeMode === right.runtimeMode &&
     left.interactionMode === right.interactionMode &&
     left.branch === right.branch &&
+    left.worktreeBaseSelected === right.worktreeBaseSelected &&
     left.worktreePath === right.worktreePath &&
     left.envMode === right.envMode &&
     left.startFromOrigin === right.startFromOrigin &&
@@ -2012,6 +2025,7 @@ function normalizePersistedDraftThreads(
             ? candidateDraftThread.interactionMode
             : DEFAULT_INTERACTION_MODE,
         branch: typeof branch === "string" ? branch : null,
+        worktreeBaseSelected: candidateDraftThread.worktreeBaseSelected === true,
         worktreePath: normalizedWorktreePath,
         envMode: normalizeDraftThreadEnvMode(candidateDraftThread.envMode, normalizedWorktreePath),
         startFromOrigin,
@@ -2801,6 +2815,7 @@ function toHydratedDraftThreadState(
     runtimeMode: persistedDraftThread.runtimeMode,
     interactionMode: persistedDraftThread.interactionMode,
     branch: persistedDraftThread.branch,
+    worktreeBaseSelected: persistedDraftThread.worktreeBaseSelected ?? false,
     worktreePath: persistedDraftThread.worktreePath,
     envMode: persistedDraftThread.envMode,
     startFromOrigin: persistedDraftThread.startFromOrigin,
@@ -3108,6 +3123,9 @@ const composerDraftStore = create<ComposerDraftStoreState>()(
               runtimeMode: options.runtimeMode ?? existing.runtimeMode,
               interactionMode: options.interactionMode ?? existing.interactionMode,
               branch: nextBranch,
+              worktreeBaseSelected:
+                options.worktreeBaseSelected ??
+                (projectChanged ? false : (existing.worktreeBaseSelected ?? false)),
               worktreePath: nextWorktreePath,
               envMode:
                 options.envMode ?? (nextWorktreePath ? "worktree" : (existing.envMode ?? "local")),
@@ -3121,6 +3139,7 @@ const composerDraftStore = create<ComposerDraftStoreState>()(
               nextDraftThread.projectId === existing.projectId &&
               nextDraftThread.logicalProjectKey === existing.logicalProjectKey &&
               nextDraftThread.environmentSelection === existing.environmentSelection &&
+              nextDraftThread.worktreeBaseSelected === existing.worktreeBaseSelected &&
               nextDraftThread.loadBalancedEnvironmentId === existing.loadBalancedEnvironmentId &&
               nextDraftThread.createdAt === existing.createdAt &&
               nextDraftThread.runtimeMode === existing.runtimeMode &&

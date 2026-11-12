@@ -1,8 +1,11 @@
-import { T, msg, useGT, useMessages } from "gt-react";
-import { type MessageResolver } from "~/i18n/messages";
+import { useGT } from "gt-react";
+import { useMessages as useVcsMessages } from "gt-react";
+import { msg as vcsMsg } from "gt-react";
+import { T } from "gt-react";
 import { type WorktreeSetupSnapshot, type WorktreeSetupStage } from "@t3tools/contracts";
 import { worktreeSetupStageLabel } from "@t3tools/client-runtime/contract-labels";
 import { formatDuration } from "@t3tools/shared/orchestrationTimingCopy";
+import { workspaceBaseLabel } from "@t3tools/client-runtime/worktree-setup";
 import {
   CheckIcon,
   CircleAlertIcon,
@@ -14,7 +17,8 @@ import {
   ChevronDownIcon,
   ChevronRightIcon,
 } from "lucide-react";
-import { useState, type ReactNode } from "react";
+import { VcsTerminologyContext } from "../../state/vcs";
+import { useContext, useState, type ReactNode } from "react";
 
 import { Button } from "~/components/ui/button";
 import { Spinner } from "~/components/ui/spinner";
@@ -40,7 +44,7 @@ function elapsedMs(startedAt: string | null, endMs: number): number | null {
 
 /** Mounted only while setup runs, so finished setups never subscribe to the tick. */
 function LiveElapsed({ startedAt }: { startedAt: string }) {
-  const m = useMessages();
+  const m = useVcsMessages();
   const elapsed = elapsedMs(startedAt, useNowSecond());
   return elapsed === null ? null : <>{formatDuration(elapsed, m)}</>;
 }
@@ -55,7 +59,7 @@ function Elapsed({
   endedAt: string | null;
   live: boolean;
 }) {
-  const m = useMessages();
+  const m = useVcsMessages();
   if (!startedAt) return null;
   if (endedAt) {
     const elapsed = elapsedMs(startedAt, Date.parse(endedAt));
@@ -110,28 +114,53 @@ function ShimmerOverlay({ children }: { children: ReactNode }) {
   );
 }
 
-function headerLabel(snapshot: WorktreeSetupSnapshot, resolve: MessageResolver): string {
+function headerLabel(
+  snapshot: WorktreeSetupSnapshot,
+  terminology: import("@t3tools/shared/vcs").VcsTerminology,
+  vcsMessage: import("~/i18n/messages").MessageResolver,
+): string {
   switch (snapshot.phase) {
     case "running":
-      return resolve(msg("Setting up worktree…"));
+      return vcsMessage(
+        terminology.kind === "git"
+          ? vcsMsg("Setting up worktree…")
+          : vcsMsg("Setting up {value0}…", { value0: terminology.workspaceNoun }),
+      );
     case "done":
       return snapshot.stages.some((stage) => stage.status === "failed")
-        ? resolve(msg("Worktree ready, setup script failed"))
-        : resolve(msg("Worktree ready"));
+        ? vcsMessage(
+            terminology.kind === "git"
+              ? vcsMsg("Worktree ready, setup script failed")
+              : vcsMsg("{value0} ready, setup script failed", {
+                  value0: terminology.workspaceNounTitle,
+                }),
+          )
+        : vcsMessage(
+            terminology.kind === "git"
+              ? vcsMsg("Worktree ready")
+              : vcsMsg("{value0} ready", { value0: terminology.workspaceNounTitle }),
+          );
     case "failed":
-      return resolve(msg("Worktree setup failed"));
+      return vcsMessage(
+        terminology.kind === "git"
+          ? vcsMsg("Worktree setup failed")
+          : vcsMsg("{value0} setup failed", { value0: terminology.workspaceNounTitle }),
+      );
     case "cancelled":
-      return resolve(msg("Worktree setup cancelled"));
+      return vcsMessage(
+        terminology.kind === "git"
+          ? vcsMsg("Worktree setup cancelled")
+          : vcsMsg("{value0} setup cancelled", { value0: terminology.workspaceNounTitle }),
+      );
   }
 }
 
 function SetupHeaderRow({ snapshot }: { snapshot: WorktreeSetupSnapshot }) {
-  const m = useMessages();
   const running = snapshot.phase === "running";
   const failed = snapshot.phase === "failed";
   const finishedWithFailedStage =
     snapshot.phase === "done" && snapshot.stages.some((stage) => stage.status === "failed");
-  const text = headerLabel(snapshot, m);
+  const text = headerLabel(snapshot, useContext(VcsTerminologyContext), useVcsMessages());
   const tone = failed
     ? "text-destructive-foreground"
     : finishedWithFailedStage
@@ -171,16 +200,25 @@ function StageRow({
   setupEndedAt: string | null;
   scriptName: string | null;
 }) {
-  const gt = useGT();
-  const m = useMessages();
+  const vcsMessage = useVcsMessages();
+  const terminology = useContext(VcsTerminologyContext);
   const label =
-    stage.id === "setup-script" && scriptName ? scriptName : worktreeSetupStageLabel(stage.id, m);
+    stage.id === "setup-script" && scriptName
+      ? scriptName
+      : stage.id === "fetch"
+        ? vcsMessage(
+            terminology.kind === "git"
+              ? vcsMsg("Fetch base branch")
+              : vcsMsg("Fetch base {value0}", { value0: terminology.refNoun }),
+          )
+        : worktreeSetupStageLabel(stage.id, vcsMessage);
   const running = stage.status === "running";
   const trailing =
     stage.status === "pending"
       ? null
       : stage.status === "skipped"
-        ? (stage.detail ?? gt("skipped", { $context: "worktree setup stage status" }))
+        ? (stage.detail ??
+          vcsMessage(vcsMsg("skipped", { $context: "worktree setup stage status" })))
         : stage.id === "checkout" && running && stage.percent !== null
           ? `${stage.percent}%`
           : stage.detail;
@@ -252,12 +290,14 @@ function OutputTail({ lines, failed }: { lines: ReadonlyArray<string>; failed: b
 }
 
 function SetupDetails({ snapshot }: { snapshot: WorktreeSetupSnapshot }) {
+  const messages = useVcsMessages();
+  const terminology = useContext(VcsTerminologyContext);
   return (
     <dl className="mt-1 mb-1.5 ml-8 grid grid-cols-[auto_1fr] gap-x-3 gap-y-0.5 text-xs text-muted-foreground">
       {snapshot.branch ? (
         <>
           <dt className="text-foreground/80">
-            <T>Branch</T>
+            {terminology.kind === "git" ? <T>Branch</T> : terminology.refNounTitle}
           </dt>
           <dd className="min-w-0 font-mono">
             <MiddleTruncate value={snapshot.branch} className="flex" />
@@ -270,7 +310,10 @@ function SetupDetails({ snapshot }: { snapshot: WorktreeSetupSnapshot }) {
             <T context="git base branch">Base</T>
           </dt>
           <dd className="min-w-0 font-mono">
-            <MiddleTruncate value={snapshot.baseRef} className="flex" />
+            <MiddleTruncate
+              value={workspaceBaseLabel(snapshot.baseRef, terminology.kind === "jj", messages)}
+              className="flex"
+            />
           </dd>
         </>
       ) : null}
@@ -297,14 +340,13 @@ function SetupDetails({ snapshot }: { snapshot: WorktreeSetupSnapshot }) {
 }
 
 function CollapsedSummaryRow({ snapshot }: { snapshot: WorktreeSetupSnapshot }) {
-  const m = useMessages();
   const status: WorktreeSetupStage["status"] =
     snapshot.phase === "failed" || snapshot.phase === "cancelled"
       ? "failed"
       : snapshot.stages.some((stage) => stage.id === "setup-script" && stage.status === "failed")
         ? "failed"
         : "done";
-  const label = headerLabel(snapshot, m);
+  const label = headerLabel(snapshot, useContext(VcsTerminologyContext), useVcsMessages());
   return (
     <WorkLogRow
       data-worktree-setup-stage="summary"
@@ -333,8 +375,10 @@ export function WorktreeSetupCard({
 }: WorktreeSetupCardProps & {
   embedded?: boolean;
 }) {
+  const vcsMessage = useVcsMessages();
   const gt = useGT();
   const running = snapshot.phase === "running";
+  const terminology = useContext(VcsTerminologyContext);
   const [detailsOpen, setDetailsOpen] = useState(false);
   const setupStage = snapshot.stages.find((stage) => stage.id === "setup-script");
   const showTerminal = onOpenTerminal && setupStage && setupStage.status !== "pending";
@@ -346,7 +390,14 @@ export function WorktreeSetupCard({
       (setupStage.status === "running" && setupStage.tail.length > 0));
 
   return (
-    <section aria-label={gt("Worktree setup")} data-worktree-setup-phase={snapshot.phase}>
+    <section
+      aria-label={
+        terminology.kind === "git"
+          ? gt("Worktree setup")
+          : vcsMessage(vcsMsg("{value0} setup", { value0: terminology.workspaceNounTitle }))
+      }
+      data-worktree-setup-phase={snapshot.phase}
+    >
       {showHeader ? <SetupHeaderRow snapshot={snapshot} /> : null}
       {collapsed ? (
         <CollapsedSummaryRow snapshot={snapshot} />

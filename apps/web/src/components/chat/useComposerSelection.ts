@@ -37,6 +37,7 @@ import {
   makeModelDisabledReason,
 } from "../ChatView.logic";
 interface ComposerSelectionInput {
+  readonly vcsActionsSupported: boolean;
   readonly environmentId: EnvironmentId;
   readonly composerDraftTarget: ComposerThreadTarget;
   readonly draftThread: DraftSessionState | null;
@@ -243,6 +244,7 @@ export function useComposerSelection(input: ComposerSelectionInput) {
   };
   const onProviderModelSelectStable = useStableCallback(onProviderModelSelect);
   const onEnvModeChange = (mode: DraftThreadEnvMode) => {
+    if (mode === "worktree" && !input.vcsActionsSupported) return;
     if (multipleModelSelections !== null) return;
     cancelHeldComposerSend(composerTargetKey(composerDraftTarget));
     if (canOverrideServerThreadEnvMode) {

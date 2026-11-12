@@ -1,3 +1,5 @@
+import { useMessages as useVcsMessages } from "gt-react";
+import { msg as vcsMsg } from "gt-react";
 import { thrownErrorMessage } from "@t3tools/client-runtime/errors";
 import { m } from "~/i18n/messages";
 import { scopeProjectRef, scopeThreadRef } from "@t3tools/client-runtime/environment";
@@ -410,6 +412,7 @@ export function NewThreadLinkView({ link }: { readonly link: NewThreadLink }) {
 }
 
 /** Checkout runs setup from PR code, so links alone must not start it. */
+import { useVcsTerminology } from "../../state/vcs";
 function PullRequestLinkCheckout({
   link,
   project,
@@ -417,6 +420,8 @@ function PullRequestLinkCheckout({
   readonly link: Extract<NewThreadLink, { kind: "pull-request" }>;
   readonly project: EnvironmentProject;
 }) {
+  const vcsMessage = useVcsMessages();
+  const vcs = useVcsTerminology(project.environmentId, project.workspaceRoot);
   const { handoff, startHandoff } = usePullRequestHandoffs({
     environmentId: project.environmentId,
     detail: {
@@ -437,9 +442,18 @@ function PullRequestLinkCheckout({
   return (
     <LinkPage
       title={gt("Check out {pullRequest}?", { pullRequest: `${owner}/${name}#${number}` })}
-      description={gt(
-        "This puts the pull request's code in a new worktree and runs your project's setup script on it.",
-      )}
+      description={
+        vcs.kind === "git"
+          ? gt(
+              "This puts the pull request's code in a new worktree and runs your project's setup script on it.",
+            )
+          : vcsMessage(
+              vcsMsg(
+                "This puts the pull request's code in a new {value0} and runs your project's setup script on it.",
+                { value0: vcs.workspaceNoun },
+              ),
+            )
+      }
     >
       <Button
         size="sm"

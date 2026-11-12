@@ -1,3 +1,6 @@
+import { localizedVcsTerminology } from "@t3tools/client-runtime/state/vcs";
+import { useMessages as useVcsMessages } from "gt-react";
+import { msg as vcsMsg } from "gt-react";
 import { T, useGT, useMessages, Var } from "gt-react";
 import { RefreshIcon } from "~/components/ui/refresh-icon";
 import { useAtomValue } from "@effect/atom-react";
@@ -237,6 +240,7 @@ export default function DiffPanel({
   workspaceMutationId,
   visible,
 }: DiffPanelProps) {
+  const vcsMessage = useVcsMessages();
   const gt = useGT();
   const messages = useMessages();
   const resolvedTheme = useRenderedAppearance();
@@ -509,11 +513,23 @@ export default function DiffPanel({
     selectedCommitSha !== null && selectedGitSource?.headRef === selectedCommitSha
       ? selectedGitSource.commitSubject
       : undefined;
+  const selectedRepositoryStatus = useEnvironmentQuery(
+    gitRepository !== null && activeThread != null
+      ? vcsEnvironment.status({
+          environmentId: activeThread.environmentId,
+          input: { cwd: gitRepository.cwd },
+        })
+      : null,
+  );
+  const vcs = localizedVcsTerminology(
+    gitRepository === null ? gitStatusQuery.data : selectedRepositoryStatus.data,
+    vcsMessage,
+  );
   const selectedGitScopeLabel =
     selectedCommitSha !== null
       ? (selectedCommitSubject ?? gt("Commit {sha}", { sha: selectedCommitSha.slice(0, 7) }))
       : selectedGitScope === "unstaged"
-        ? gt("Uncommitted")
+        ? vcs.workingTreeDiffLabel
         : gt("Changes");
   const selectedTurnLabel = gt("Turn {count}", { count: selectedCheckpointTurnCount ?? "?" });
   const selectedScopeLabel = toolCallSelection
@@ -1030,7 +1046,7 @@ export default function DiffPanel({
                   </DropdownMenuRadioItem>
                   <DropdownMenuRadioItem value="unstaged" closeOnClick>
                     <span>
-                      <T>Uncommitted</T>
+                      {vcs.kind === "git" ? <T>Uncommitted</T> : vcs.workingTreeDiffLabel}
                     </span>
                   </DropdownMenuRadioItem>
                 </>
@@ -1161,7 +1177,11 @@ export default function DiffPanel({
                     </DropdownMenuItem>
                   ) : branchCommits.commits.length === 0 ? (
                     <DropdownMenuItem disabled>
-                      <T>No commits on this branch.</T>
+                      {vcs.kind === "git" ? (
+                        <T>No commits on this branch.</T>
+                      ) : (
+                        vcsMessage(vcsMsg("No commits on this {value0}.", { value0: vcs.refNoun }))
+                      )}
                     </DropdownMenuItem>
                   ) : branchCommits.truncated ? (
                     <DropdownMenuItem disabled>
@@ -1317,7 +1337,7 @@ export default function DiffPanel({
                   <span aria-hidden="true" />
                   <div className="grid min-w-0 grid-cols-[minmax(0,1fr)_2rem] items-center">
                     <span>
-                      <T context="git branch">Branch</T>
+                      {vcs.kind === "git" ? <T context="git branch">Branch</T> : vcs.refNounTitle}
                     </span>
                     <span className="text-right">
                       <T context="git remote">Remote</T>
@@ -1661,7 +1681,13 @@ export default function DiffPanel({
                       : selectedTurn
                         ? gt("Loading checkpoint diff...")
                         : selectedGitScope === "unstaged"
-                          ? gt("Loading uncommitted changes...")
+                          ? vcs.kind === "git"
+                            ? gt("Loading uncommitted changes...")
+                            : vcsMessage(
+                                vcsMsg("Loading {value0} changes...", {
+                                  value0: vcs.workingTreeEditsAdjective,
+                                }),
+                              )
                           : selectedGitScope === "commit"
                             ? gt("Loading commit...")
                             : gt("Loading changes...")

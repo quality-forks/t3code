@@ -107,6 +107,7 @@ export function readPendingWorkspaceDefault(draftId: DraftId): Promise<void> | n
 
 interface NewThreadWorkspaceOptions {
   branch?: string | null;
+  worktreeBaseSelected?: boolean;
   worktreePath?: string | null;
   envMode?: DraftThreadEnvMode;
   startFromOrigin?: boolean;
@@ -115,6 +116,9 @@ interface NewThreadWorkspaceOptions {
 function pickExplicitWorkspaceOptions(options: NewThreadWorkspaceOptions | undefined) {
   return {
     ...(options?.branch !== undefined ? { branch: options.branch } : {}),
+    ...(options?.worktreeBaseSelected !== undefined
+      ? { worktreeBaseSelected: options.worktreeBaseSelected }
+      : {}),
     ...(options?.worktreePath !== undefined ? { worktreePath: options.worktreePath } : {}),
     ...(options?.envMode !== undefined ? { envMode: options.envMode } : {}),
     ...(options?.startFromOrigin !== undefined ? { startFromOrigin: options.startFromOrigin } : {}),
@@ -137,6 +141,7 @@ export function createNewThreadHandler(router: AnyRouter) {
     projectRef: ScopedProjectRef,
     options?: {
       branch?: string | null;
+      worktreeBaseSelected?: boolean;
       worktreePath?: string | null;
       envMode?: DraftThreadEnvMode;
       startFromOrigin?: boolean;
@@ -451,6 +456,9 @@ export function createNewThreadHandler(router: AnyRouter) {
         threadId,
         createdAt,
         branch: options?.branch ?? null,
+        ...(options?.worktreeBaseSelected === undefined
+          ? {}
+          : { worktreeBaseSelected: options.worktreeBaseSelected }),
         worktreePath: options?.worktreePath ?? null,
         envMode: initialEnvMode,
         startFromOrigin: options?.startFromOrigin ?? startFromOriginFor(initialEnvMode),

@@ -1,3 +1,4 @@
+import { VcsTerminologyContext, useVcsTerminology } from "../../state/vcs";
 import type {
   OrchestrationV2ThreadShell,
   OrchestrationV2TurnItemStatus,
@@ -15,7 +16,7 @@ import { readSelectedEffortValue } from "@t3tools/client-runtime/state/thread-ex
 import { resolveSelectableModel } from "@t3tools/shared/model";
 import { getTraitsSpeedDisplay, TraitsSpeedIcon } from "./TraitsSpeed";
 import { useGT, useMessages } from "gt-react";
-import type { ReactNode } from "react";
+import { useContext, type ReactNode } from "react";
 import {
   BotIcon,
   CheckIcon,
@@ -32,6 +33,7 @@ import { cn } from "~/lib/utils";
 import { deriveProviderInstanceEntries, shouldShowInstanceBadge } from "../../providerInstances";
 
 export function SubagentTooltipContent(props: {
+  environmentId?: import("@t3tools/contracts").EnvironmentId;
   title: string;
   model: string | null;
   providerInstanceId: ProviderInstanceId;
@@ -53,6 +55,10 @@ export function SubagentTooltipContent(props: {
 }) {
   const gt = useGT();
   const messages = useMessages();
+  const inheritedTerminology = useContext(VcsTerminologyContext);
+  const childCwd = props.childThread?.worktreePath ?? props.childProject?.workspaceRoot ?? null;
+  const childTerminology = useVcsTerminology(props.environmentId ?? null, childCwd);
+  const terminology = props.environmentId && childCwd ? childTerminology : inheritedTerminology;
   const childSelection =
     props.modelSelection ??
     (props.origin === "app_owned" ? props.childThread?.modelSelection : undefined);
@@ -60,11 +66,7 @@ export function SubagentTooltipContent(props: {
     modelLabel,
     modelSlug,
     workspace: metadata,
-  } = resolveSubagentMetadata({ ...props, modelSelection: childSelection }, messages);
-  const hasProjectRow =
-    props.parentThread !== undefined &&
-    props.childProject !== undefined &&
-    props.childProject.id !== props.parentThread.projectId;
+  } = resolveSubagentMetadata({ ...props, modelSelection: childSelection, terminology }, messages);
   const preview = subagentDetailPreview(props);
   const providerModel = props.provider?.models.find((candidate) => candidate.slug === modelSlug);
   const childModel = props.provider
@@ -197,9 +199,8 @@ export function SubagentTooltipContent(props: {
         </span>
         {props.elapsed}
       </div>
-      {metadata.map(({ label, value }, index) => {
-        const Icon =
-          props.childThread?.branch && !(hasProjectRow && index === 0) ? GitBranchIcon : FolderIcon;
+      {metadata.map(({ label, value }) => {
+        const Icon = label === terminology.refNounTitle ? GitBranchIcon : FolderIcon;
         return (
           <div key={label} className="flex min-w-0 items-center gap-2">
             <Icon aria-hidden className="size-3 shrink-0" />

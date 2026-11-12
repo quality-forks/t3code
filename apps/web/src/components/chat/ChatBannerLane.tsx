@@ -20,6 +20,7 @@ import { dismissThreadErrorBannerForSession, ThreadErrorBanner } from "./ThreadE
 export function ChatBannerLane(props: {
   environmentId: EnvironmentId;
   vcsFallbackNotice?: Parameters<typeof VcsFallbackNotice>[0] | null;
+  vcsUnsupportedReason?: string | null;
   providerStatus: ServerProvider | null;
   providerStatusDismissalKey: string | null;
   onOpenProviderSetup: (instanceId: ProviderInstanceId) => void;
@@ -46,6 +47,14 @@ export function ChatBannerLane(props: {
   return (
     <div className="chat-banner-lane pointer-events-none absolute top-0 z-30 flex flex-col">
       {props.vcsFallbackNotice ? <VcsFallbackNotice {...props.vcsFallbackNotice} /> : null}
+      {props.vcsUnsupportedReason ? (
+        <div
+          role="status"
+          className="pointer-events-auto rounded-md border bg-background p-3 text-sm"
+        >
+          {props.vcsUnsupportedReason}
+        </div>
+      ) : null}
       <ProviderStatusBanner
         environmentId={props.environmentId}
         status={providerStatus}

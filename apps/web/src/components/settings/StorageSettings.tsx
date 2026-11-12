@@ -1,3 +1,6 @@
+import { useMessages as useVcsMessages } from "gt-react";
+import { msg as vcsMsg } from "gt-react";
+import { useSettingsVcsTerminology } from "./useSettingsVcsTerminology";
 import type {
   StorageCleanupReport,
   StorageCleanupSettings,
@@ -52,8 +55,10 @@ import {
 import { settingsScopeEnvironmentLabel } from "./settingsScopeAxis";
 
 export function WorktreesDirectoryRow() {
+  const vcsMessage = useVcsMessages();
   const setting = useSearchableSetting();
   const gt = useGT();
+  const terminology = useSettingsVcsTerminology();
   const { connectedEnvironments, targets } = useSettingsScope();
   const settings = useScopedSettings();
   const updateSettings = useUpdateScopedSettings();
@@ -72,15 +77,28 @@ export function WorktreesDirectoryRow() {
   return (
     <SettingsRow
       {...setting("storage-worktrees-location")}
-      description={gt(
-        "Folder where new worktrees are created, on any drive, such as D:\\worktrees or ~/worktrees. Existing worktrees stay where they are. Leave empty to use the T3 home folder.",
-      )}
+      description={
+        terminology.kind === "git"
+          ? gt(
+              "Folder where new worktrees are created, on any drive, such as D:\\worktrees or ~/worktrees. Existing worktrees stay where they are. Leave empty to use the T3 home folder.",
+            )
+          : vcsMessage(
+              vcsMsg(
+                "Folder where new {value0} are created, on any drive, such as D:\\worktrees or ~/worktrees. Existing {value0} stay where they are. Leave empty to use the T3 home folder.",
+                { value0: terminology.workspaceNounPlural },
+              ),
+            )
+      }
       serverScoped
       settingKeys={["worktreesDirectory"]}
       resetAction={
         mixed || settings.worktreesDirectory !== "" ? (
           <SettingResetButton
-            ariaLabel={gt("Reset worktree location to default")}
+            ariaLabel={
+              terminology.kind === "git"
+                ? gt("Reset worktree location to default")
+                : vcsMessage(vcsMsg("{value0} location", { value0: terminology.workspaceNoun }))
+            }
             onClick={() => updateSettings({ worktreesDirectory: "" })}
           />
         ) : null
@@ -88,7 +106,11 @@ export function WorktreesDirectoryRow() {
       control={
         <Input
           key={`${scopeKey}:${mixed}:${settings.worktreesDirectory}`}
-          aria-label={gt("Worktree location")}
+          aria-label={
+            terminology.kind === "git"
+              ? gt("Worktree location")
+              : vcsMessage(vcsMsg("{value0} location", { value0: terminology.workspaceNounTitle }))
+          }
           autoCapitalize="none"
           spellCheck={false}
           placeholder={mixed ? gt("Mixed") : gt("Default")}
@@ -596,9 +618,11 @@ function StorageCleanupScopeNotice() {
 }
 
 export function WorktreeCleanupSection() {
+  const vcsMessage = useVcsMessages();
   const messages = useMessages();
   const setting = useSearchableSetting();
   const gt = useGT();
+  const terminology = useSettingsVcsTerminology();
   const { scope, environments, connectedEnvironments, targets, target } = useSettingsScope();
   const scopedSettings = useScopedSettings();
   const isProjectScope = scope.kind === "project" || scope.kind === "checkout";
@@ -661,13 +685,31 @@ export function WorktreeCleanupSection() {
       <>
         {isProjectScope && (
           <SettingsRow
-            title={gt("Automatic worktree cleanup")}
+            title={
+              terminology.kind === "git"
+                ? gt("Automatic worktree cleanup")
+                : vcsMessage(
+                    vcsMsg("Automatic {value0} cleanup", { value0: terminology.workspaceNoun }),
+                  )
+            }
             description={
               mode === "off"
-                ? gt("Keep this project's worktrees until you delete them manually.")
+                ? terminology.kind === "git"
+                  ? gt("Keep this project's worktrees until you delete them manually.")
+                  : vcsMessage(
+                      vcsMsg("Keep this project's {value0} until you delete them manually.", {
+                        value0: terminology.workspaceNounPlural,
+                      }),
+                    )
                 : mode === "custom"
                   ? gt("Use these rules for this project.")
-                  : gt("Use each machine's worktree cleanup settings.")
+                  : terminology.kind === "git"
+                    ? gt("Use each machine's worktree cleanup settings.")
+                    : vcsMessage(
+                        vcsMsg("Use each machine's {value0} cleanup settings.", {
+                          value0: terminology.workspaceNoun,
+                        }),
+                      )
             }
             serverScoped
             settingKeys={["worktreeCleanup"]}
@@ -682,7 +724,18 @@ export function WorktreeCleanupSection() {
                     updateSettings({ worktreeCleanup: { mode: "custom", rules: {} } });
                 }}
               >
-                <SelectTrigger size="sm" aria-label={gt("Automatic worktree cleanup")}>
+                <SelectTrigger
+                  size="sm"
+                  aria-label={
+                    terminology.kind === "git"
+                      ? gt("Automatic worktree cleanup")
+                      : vcsMessage(
+                          vcsMsg("Automatic {value0} cleanup", {
+                            value0: terminology.workspaceNoun,
+                          }),
+                        )
+                  }
+                >
                   <SelectValue>
                     {mixedModes
                       ? gt("Mixed")
@@ -711,48 +764,118 @@ export function WorktreeCleanupSection() {
         {(!isProjectScope || (!mixedModes && mode === "custom")) && (
           <>
             <SettingsRow
-              title={gt("Delete worktrees with deleted threads")}
+              title={
+                terminology.kind === "git"
+                  ? gt("Delete worktrees with deleted threads")
+                  : vcsMessage(
+                      vcsMsg("Delete {value0} with deleted threads", {
+                        value0: terminology.workspaceNounPlural,
+                      }),
+                    )
+              }
               status={ruleStatus("worktreeOnDelete")}
               managedPaths={lockablePath("worktreeOnDelete")}
-              description={gt(
-                "Remove unused worktrees or T3-managed Jujutsu workspaces with deleted threads. Jujutsu keeps described changes, conflicts, and history without a surviving bookmark. Local-file rules apply below.",
-              )}
+              description={
+                terminology.kind === "git"
+                  ? gt(
+                      "Remove unused worktrees when active or archived threads are deleted. Worktrees with local changes are kept.",
+                    )
+                  : gt(
+                      "Remove unused worktrees or T3-managed Jujutsu workspaces with deleted threads. Jujutsu keeps described changes, conflicts, and history without a surviving bookmark. Local-file rules apply below.",
+                    )
+              }
               serverScoped={!isProjectScope}
               control={
                 <Switch
-                  aria-label={gt("Delete worktrees with deleted threads")}
+                  aria-label={
+                    terminology.kind === "git"
+                      ? gt("Delete worktrees with deleted threads")
+                      : vcsMessage(
+                          vcsMsg("Delete {value0} with deleted threads", {
+                            value0: terminology.workspaceNounPlural,
+                          }),
+                        )
+                  }
                   checked={settings.worktreeOnDelete}
                   onCheckedChange={(worktreeOnDelete) => updateWorktree({ worktreeOnDelete })}
                 />
               }
             />
             <SettingsRow
-              title={gt("Delete merged worktrees")}
+              title={
+                terminology.kind === "git"
+                  ? gt("Delete merged worktrees")
+                  : vcsMessage(
+                      vcsMsg("Delete merged {value0}", { value0: terminology.workspaceNounPlural }),
+                    )
+              }
               status={ruleStatus("worktreeOnMerge")}
               managedPaths={lockablePath("worktreeOnMerge")}
-              description={gt(
-                "Remove worktrees or T3-managed Jujutsu workspaces whose pull request is merged and whose commits are included in the remote default branch or bookmark.",
-              )}
+              description={
+                terminology.kind === "git"
+                  ? gt(
+                      "Remove worktrees whose pull request is merged and whose commits are included in the default branch.",
+                    )
+                  : gt(
+                      "Remove worktrees or T3-managed Jujutsu workspaces whose pull request is merged and whose commits are included in the remote default branch or bookmark.",
+                    )
+              }
               serverScoped={!isProjectScope}
               control={
                 <Switch
-                  aria-label={gt("Delete merged worktrees")}
+                  aria-label={
+                    terminology.kind === "git"
+                      ? gt("Delete merged worktrees")
+                      : vcsMessage(
+                          vcsMsg("Delete merged {value0}", {
+                            value0: terminology.workspaceNounPlural,
+                          }),
+                        )
+                  }
                   checked={settings.worktreeOnMerge}
                   onCheckedChange={(worktreeOnMerge) => updateWorktree({ worktreeOnMerge })}
                 />
               }
             />
             <SettingsRow
-              title={gt("Delete inactive worktrees")}
+              title={
+                terminology.kind === "git"
+                  ? gt("Delete inactive worktrees")
+                  : vcsMessage(
+                      vcsMsg("Delete inactive {value0}", {
+                        value0: terminology.workspaceNounPlural,
+                      }),
+                    )
+              }
               status={ruleStatus("worktreeAfterDays")}
               managedPaths={lockablePath("worktreeAfterDays")}
-              description={gt(
-                "Remove worktrees after their threads have been inactive for this many days. Branches and thread history are kept.",
-              )}
+              description={
+                terminology.kind === "git"
+                  ? gt(
+                      "Remove worktrees after their threads have been inactive for this many days. Branches and thread history are kept.",
+                    )
+                  : vcsMessage(
+                      vcsMsg(
+                        "Remove {value0} after their threads have been inactive for this many days. {value1} and thread history are kept.",
+                        {
+                          value0: terminology.workspaceNounPlural,
+                          value1: terminology.refNounPluralTitle,
+                        },
+                      ),
+                    )
+              }
               serverScoped={!isProjectScope}
               control={
                 <RetentionControl
-                  label={gt("Delete inactive worktrees")}
+                  label={
+                    terminology.kind === "git"
+                      ? gt("Delete inactive worktrees")
+                      : vcsMessage(
+                          vcsMsg("Delete inactive {value0}", {
+                            value0: terminology.workspaceNounPlural,
+                          }),
+                        )
+                  }
                   value={settings.worktreeAfterDays}
                   onChange={(worktreeAfterDays, onFailed) =>
                     updateWorktree({ worktreeAfterDays }, { onFailed })
@@ -771,7 +894,15 @@ export function WorktreeCleanupSection() {
                     true,
                 ) && (
                   <SettingsRow
-                    title={gt("Delete settled worktrees")}
+                    title={
+                      terminology.kind === "git"
+                        ? gt("Delete settled worktrees")
+                        : vcsMessage(
+                            vcsMsg("Delete settled {value0}", {
+                              value0: terminology.workspaceNounPlural,
+                            }),
+                          )
+                    }
                     managedPaths={lockablePath("worktreeSettledAfterDays")}
                     status={[
                       ruleStatus("worktreeSettledAfterDays"),
@@ -781,13 +912,33 @@ export function WorktreeCleanupSection() {
                     ]
                       .filter(Boolean)
                       .join(". ")}
-                    description={gt(
-                      "Remove worktrees this many days after their thread settles. Set 0 days to remove them at the next cleanup. Branches and thread history are kept.",
-                    )}
+                    description={
+                      terminology.kind === "git"
+                        ? gt(
+                            "Remove worktrees this many days after their thread settles. Set 0 days to remove them at the next cleanup. Branches and thread history are kept.",
+                          )
+                        : vcsMessage(
+                            vcsMsg(
+                              "Remove {value0} this many days after their thread settles. Set 0 days to remove them at the next cleanup. {value1} and thread history are kept.",
+                              {
+                                value0: terminology.workspaceNounPlural,
+                                value1: terminology.refNounPluralTitle,
+                              },
+                            ),
+                          )
+                    }
                     serverScoped={!isProjectScope}
                     control={
                       <RetentionControl
-                        label={gt("Delete settled worktrees")}
+                        label={
+                          terminology.kind === "git"
+                            ? gt("Delete settled worktrees")
+                            : vcsMessage(
+                                vcsMsg("Delete settled {value0}", {
+                                  value0: terminology.workspaceNounPlural,
+                                }),
+                              )
+                        }
                         value={settings.worktreeSettledAfterDays}
                         minimum={0}
                         onChange={(worktreeSettledAfterDays, onFailed) =>
@@ -798,16 +949,36 @@ export function WorktreeCleanupSection() {
                   />
                 )}
               <SettingsRow
-                title={gt("Delete unchanged worktrees")}
+                title={
+                  terminology.kind === "git"
+                    ? gt("Delete unchanged worktrees")
+                    : vcsMessage(
+                        vcsMsg("Delete unchanged {value0}", {
+                          value0: terminology.workspaceNounPlural,
+                        }),
+                      )
+                }
                 status={ruleStatus("worktreeUnchanged")}
                 managedPaths={lockablePath("worktreeUnchanged")}
-                description={gt(
-                  "Remove worktrees with no commits beyond the default branch. Jujutsu workspaces require a verified remote default bookmark and preserved ancestry. Stale workspaces are kept without automatic repair.",
-                )}
+                description={
+                  terminology.kind === "git"
+                    ? gt("Remove worktrees with no commits beyond the default branch.")
+                    : gt(
+                        "Remove worktrees with no commits beyond the default branch. Jujutsu workspaces require a verified remote default bookmark and preserved ancestry. Stale workspaces are kept without automatic repair.",
+                      )
+                }
                 serverScoped={!isProjectScope}
                 control={
                   <Switch
-                    aria-label={gt("Delete unchanged worktrees")}
+                    aria-label={
+                      terminology.kind === "git"
+                        ? gt("Delete unchanged worktrees")
+                        : vcsMessage(
+                            vcsMsg("Delete unchanged {value0}", {
+                              value0: terminology.workspaceNounPlural,
+                            }),
+                          )
+                    }
                     checked={settings.worktreeUnchanged}
                     onCheckedChange={(worktreeUnchanged) => updateWorktree({ worktreeUnchanged })}
                   />
@@ -843,11 +1014,24 @@ export function WorktreeCleanupSection() {
                           updateWorktree({ worktreeKeepWhen: next });
                       }}
                     >
-                      <SelectTrigger size="sm" aria-label={gt("Keep worktrees with local changes")}>
+                      <SelectTrigger
+                        size="sm"
+                        aria-label={
+                          terminology.kind === "git"
+                            ? gt("Keep worktrees with local changes")
+                            : vcsMessage(
+                                vcsMsg("Keep {value0} with local changes", {
+                                  value0: terminology.workspaceNounPlural,
+                                }),
+                              )
+                        }
+                      >
                         <SelectValue>
                           {ruleStatus("worktreeKeepWhen")
                             ? gt("Mixed")
-                            : messages(KEEP_WHEN_LABELS[settings.worktreeKeepWhen])}
+                            : settings.worktreeKeepWhen === "uncommitted-changes"
+                              ? terminology.localChangesLabel
+                              : messages(KEEP_WHEN_LABELS[settings.worktreeKeepWhen])}
                         </SelectValue>
                       </SelectTrigger>
                       <SelectPopup align="end" alignItemWithTrigger={false}>
@@ -855,7 +1039,11 @@ export function WorktreeCleanupSection() {
                           <T>Any local files</T>
                         </SelectItem>
                         <SelectItem value="uncommitted-changes">
-                          <T>Uncommitted changes</T>
+                          {terminology.kind === "git" ? (
+                            <T>Uncommitted changes</T>
+                          ) : (
+                            terminology.localChangesLabel
+                          )}
                         </SelectItem>
                         <SelectItem value="tracked-changes">
                           <T>Edited tracked files</T>

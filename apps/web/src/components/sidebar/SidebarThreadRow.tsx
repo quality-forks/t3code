@@ -1,3 +1,4 @@
+import { useVcsTerminology } from "../../state/vcs";
 import { useAtomMount } from "@effect/atom-react";
 import { asLaunchingThread } from "@t3tools/client-runtime/state/thread-inbox";
 import { ThreadHoverCard, ThreadHoverCardPopup } from "../ThreadHoverCard";
@@ -285,6 +286,10 @@ function SidebarThreadTooltip({
   terminalStatus: TerminalStatusIndicator | null;
   terminalProcessCount: number;
 }) {
+  const terminology = useVcsTerminology(
+    thread.environmentId,
+    thread.worktreePath ?? project?.workspaceRoot ?? null,
+  );
   const driverKind = providerEntry?.driverKind ?? null;
   const worktreePath = thread.worktreePath?.trim();
   const previousProviderNames = thread.providerInstanceHistory
@@ -336,7 +341,13 @@ function SidebarThreadTooltip({
           <div className="flex min-w-0 items-start gap-2 text-warning">
             <CircleAlertIcon aria-hidden className="mt-0.5 size-3 shrink-0 stroke-current" />
             <div className="min-w-0 flex-1 wrap-break-word">
-              <T>You're currently checked out on another branch.</T>
+              <>
+                {terminology.kind === "git" ? (
+                  <T>You&apos;re currently checked out on another branch.</T>
+                ) : (
+                  <T>The checkout is currently on another ref.</T>
+                )}
+              </>
             </div>
           </div>
         ) : null}

@@ -1,5 +1,9 @@
+import { useMessages as useVcsMessages } from "gt-react";
+import { m as vcsMessage } from "~/i18n/messages";
+import { msg as vcsMsg } from "gt-react";
 import { thrownErrorMessage } from "@t3tools/client-runtime/errors";
 import { managedCapabilityDenial } from "@t3tools/client-runtime/contract-labels";
+import { useVcsTerminology } from "../../state/vcs";
 import { useAtomValue } from "@effect/atom-react";
 import { connectionStatusTitle } from "@t3tools/client-runtime/connection";
 import { AsyncResult } from "effect/reactivity";
@@ -168,18 +172,22 @@ const WEEKDAY_SHORT = [
 // Thread ids are trimmed, so the leading space keeps this from matching one.
 const NEW_THREAD_DESTINATION = " new-thread";
 
-const WORKSPACE_MODE_LABELS: Record<WorkspaceMode, string> = {
-  worktree: msg("Create a new worktree"),
-  root: msg("Use the project checkout"),
-  existing_worktree: msg("Use a specific checkout"),
-};
-
 const SCOPE_SUMMARY_TEMPLATES: Record<string, string> = {
   "Not connected:": msg("Not connected: {environments}"),
   "Loading scheduled tasks on": msg("Loading scheduled tasks on {environments}"),
   "Could not load scheduled tasks:": msg("Could not load scheduled tasks: {environments}"),
   "No tasks on": msg("No tasks on {environments}"),
 };
+const workspaceModeLabels = (
+  terminology: import("@t3tools/shared/vcs").VcsTerminology,
+): Record<WorkspaceMode, string> => ({
+  worktree:
+    terminology.kind === "git"
+      ? m(msg("Create a new worktree"))
+      : vcsMessage(vcsMsg("Create a new {value0}", { value0: terminology.workspaceNoun })),
+  root: m(msg("Use the project checkout")),
+  existing_worktree: m(msg("Use a specific checkout")),
+});
 
 const EMPTY_DRAFT: DraftState = {
   editingId: null,
@@ -1477,6 +1485,7 @@ function ScheduledTaskEditorForm({
   readonly onSavingChange: (saving: boolean) => void;
   readonly onClose: () => void;
 }) {
+  const vcsMessage = useVcsMessages();
   const messages = useMessages();
   const locale = useLocale();
   const gt = useGT();
@@ -1543,6 +1552,7 @@ function ScheduledTaskEditorForm({
     : task;
   const selectedProjectId = draft.projectId || projects[0]?.id || "";
   const selectedProject = projects.find((project) => project.id === selectedProjectId);
+  const vcsTerminology = useVcsTerminology(environmentId, selectedProject?.workspaceRoot ?? null);
   const automaticBaseRef = draft.workspaceMode === "worktree" && !draft.baseRef.trim();
   const automaticBaseRefs = usePaginatedBranches({
     environmentId,
@@ -1885,11 +1895,21 @@ function ScheduledTaskEditorForm({
                 }
               >
                 <SelectTrigger size="sm" id="scheduled-task-workspace">
-                  <SelectValue>{messages(WORKSPACE_MODE_LABELS[draft.workspaceMode])}</SelectValue>
+                  <SelectValue>
+                    {workspaceModeLabels(vcsTerminology)[draft.workspaceMode]}
+                  </SelectValue>
                 </SelectTrigger>
                 <SelectPopup>
                   <SelectItem value="worktree">
-                    <T>Create a new worktree</T>
+                    <>
+                      {vcsTerminology.kind === "git" ? (
+                        <T>Create a new worktree</T>
+                      ) : (
+                        <T>
+                          Create a new <Var>{vcsTerminology.workspaceNoun}</Var>
+                        </T>
+                      )}
+                    </>
                   </SelectItem>
                   <SelectItem value="root">
                     <T>Use the project checkout</T>
@@ -1903,7 +1923,14 @@ function ScheduledTaskEditorForm({
           </div>
 
           {draft.workspaceMode === "worktree" ? (
-            <Field label={gt("Base branch")} htmlFor="scheduled-task-base-ref">
+            <Field
+              label={
+                vcsTerminology.kind === "git"
+                  ? gt("Base branch")
+                  : vcsMessage(vcsMsg("Base {value0}", { value0: vcsTerminology.refNoun }))
+              }
+              htmlFor="scheduled-task-base-ref"
+            >
               <WorktreeBaseBranchPicker
                 key={`${environmentId}:${selectedProjectId}`}
                 id="scheduled-task-base-ref"

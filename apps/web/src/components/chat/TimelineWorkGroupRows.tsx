@@ -1,3 +1,7 @@
+import { useMessages as useVcsMessages } from "gt-react";
+import { msg as vcsMsg } from "gt-react";
+import { useContext } from "react";
+import { VcsTerminologyContext } from "../../state/vcs";
 import { TimelinePendingApprovalRow } from "./TimelinePendingApprovalRow";
 import { WorkLogButton, WorkLogList, WorkLogRow } from "./WorkLog";
 import type { WorktreeSetupSnapshot } from "@t3tools/contracts";
@@ -349,12 +353,18 @@ function ExpandedWorkGroupEntries({
 const workEntryKey = (entry: TimelineWorkEntry) => entry.id;
 
 export function WorkingTimelineRow({ row }: { row: Extract<TimelineRow, { kind: "working" }> }) {
+  const vcsMessage = useVcsMessages();
+  const terminology = useContext(VcsTerminologyContext);
   const { isCompacting, isPreparingWorktree, backgroundWorktreeSetup } =
     use(TimelineRowActivityCtx);
   const compacting = row.compacting === true || isCompacting;
   const shimmer = isPreparingWorktree || compacting;
   const label = isPreparingWorktree ? (
-    <T>Setting up worktree…</T>
+    terminology.kind === "git" ? (
+      <T>Setting up worktree…</T>
+    ) : (
+      vcsMessage(vcsMsg("Setting up {value0}…", { value0: terminology.workspaceNoun }))
+    )
   ) : compacting ? (
     <CompactingLabel createdAt={row.createdAt} />
   ) : row.createdAt ? (

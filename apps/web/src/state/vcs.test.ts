@@ -1,4 +1,5 @@
 import type { VcsStatusResult } from "@t3tools/contracts";
+import { GIT_VCS_TERMINOLOGY } from "@t3tools/shared/vcs";
 import { AsyncResult, Atom, AtomRegistry } from "effect/reactivity";
 import { describe, expect, it, vi } from "vite-plus/test";
 
@@ -6,6 +7,7 @@ import { chatGitStatusAtom } from "./vcs";
 
 vi.mock("../connection/runtime", () => ({ connectionAtomRuntime: {} }));
 vi.mock("@t3tools/client-runtime/state/vcs", () => ({
+  localizedVcsTerminology: () => GIT_VCS_TERMINOLOGY,
   createVcsActionManager: () => ({}),
   createVcsEnvironmentAtoms: () => ({}),
   createVcsStatusRevalidationAtomFamily: () => () => null,

@@ -1,6 +1,10 @@
+import { useMessages as useVcsMessages } from "gt-react";
+import { localizedVcsTerminology } from "@t3tools/client-runtime/state/vcs";
+import { msg as vcsMsg } from "gt-react";
 import { m } from "../i18n/messages";
 import { thrownErrorMessage } from "@t3tools/client-runtime/errors";
 import { useGT, useMessages } from "gt-react";
+import { resolveNewWorkspaceBase } from "@t3tools/client-runtime/worktree-setup";
 import { ChildThreadApprovals } from "./chat/ChildThreadApprovals";
 import { workspaceAreaProps } from "../lib/workspaceFocus";
 import { sourceControlClients } from "@t3tools/client-runtime/source-control-clients";
@@ -295,6 +299,12 @@ import {
   useThreadCheckpointSummaries,
 } from "../state/entities";
 import { useEnvironmentShellHasSnapshot } from "../state/shell";
+import {
+  supportsVcsActions,
+  resolveVcsUnsupportedReason,
+  resolveVcsFallbackNotice,
+} from "@t3tools/shared/vcs";
+import { VcsTerminologyContext } from "../state/vcs";
 import { ChatComposer, type ChatComposerHandle } from "./chat/ChatComposer";
 import { DraftHeroHeadline } from "./chat/DraftHeroHeadline";
 import { ExpandedImageDialogHost, openExpandedImagePreview } from "./chat/ExpandedImageDialog";
@@ -456,6 +466,7 @@ const DismissedFallbackWindowSchema = Schema.NullOr(Schema.String);
 const ignoreComposerFocus = () => {};
 
 export default function ChatView(props: ChatViewProps) {
+  const vcsMessage = useVcsMessages();
   const gt = useGT();
   const messages = useMessages();
   const {
@@ -1840,7 +1851,7 @@ export default function ChatView(props: ChatViewProps) {
   const isGitRepo = liveIsGitRepo ?? recallCheckoutIsRepo(environmentId, gitStatusCwd) ?? true;
   // A plain folder holding tracked repositories has turn diffs without being a Git repository.
   const diffAvailable =
-    isGitRepo ||
+    (isGitRepo && supportsVcsActions(gitStatusQuery.data)) ||
     (activeProject?.trackedFolders?.length ?? 0) > 0 ||
     turnDiffSummaries.some((summary) => summary.repositories !== undefined);
   // Provider-native subagents cannot take messages; approvals and questions go to the top-level parent.
@@ -2338,7 +2349,7 @@ export default function ChatView(props: ChatViewProps) {
   const envMode: DraftThreadEnvMode = canOverrideServerThreadEnvMode
     ? (pendingServerThreadEnvMode ?? draftThread?.envMode ?? derivedEnvMode)
     : derivedEnvMode;
-  const activeThreadBranch =
+  const selectedThreadBranch =
     canOverrideServerThreadEnvMode && pendingServerThreadBranchEntryForThread !== null
       ? pendingServerThreadBranchEntryForThread.branch
       : (activeThread?.branch ?? null);
@@ -2362,6 +2373,19 @@ export default function ChatView(props: ChatViewProps) {
       ? (draftThread?.worktreeRepositories ?? rememberedWorktreeRepositories)
       : undefined,
   }).strategyRepositories;
+  const activeThreadBranch =
+    (envMode === "worktree" || multipleModelSelections !== null) && !activeWorktreePath
+      ? resolveNewWorkspaceBase({
+          selectedBase: isLocalDraftThread
+            ? draftThread?.worktreeBaseSelected === true
+              ? selectedThreadBranch
+              : null
+            : (pendingServerThreadBranchEntryForThread?.branch ?? null),
+          startFromOrigin,
+          status: gitStatusQuery.data,
+          fallbackBase: selectedThreadBranch,
+        })
+      : selectedThreadBranch;
   const localCheckoutBranchMismatch = isServerThread
     ? resolveLocalCheckoutBranchMismatch({
         effectiveEnvMode: envMode,
@@ -2504,6 +2528,7 @@ export default function ChatView(props: ChatViewProps) {
     toggleThreadPanelStable,
     shortcuts: rightPanelShortcuts,
   } = useRightPanelActions({
+    vcsActionsSupported: supportsVcsActions(gitStatusQuery.data),
     activeThreadRef,
     activeProject,
     activeRightPanelSurface,
@@ -2547,6 +2572,7 @@ export default function ChatView(props: ChatViewProps) {
     threadStatusLine,
     shortcuts: threadLifecycleShortcuts,
   } = useThreadLifecycle({
+    vcsActionsSupported: supportsVcsActions(gitStatusQuery.data),
     environmentId,
     routeThreadKey,
     currentRouteThreadKeyRef,
@@ -2816,9 +2842,13 @@ export default function ChatView(props: ChatViewProps) {
       ...systemComposerBannerItems,
       branchMismatchBannerItem(
         {
+          terminology: localizedVcsTerminology(gitStatusQuery.data, messages),
           mismatchKey: activeBranchMismatchKey,
           mismatch: localCheckoutBranchMismatch,
-          restoreDisabled: !canWriteSourceControl || isRestoringThreadBranch,
+          restoreDisabled:
+            !canWriteSourceControl ||
+            !supportsVcsActions(gitStatusQuery.data) ||
+            isRestoringThreadBranch,
           restoring: isRestoringThreadBranch,
           onRestore: handleRestoreThreadBranchStable,
           onDismiss: () => {
@@ -3002,13 +3032,21 @@ export default function ChatView(props: ChatViewProps) {
                     activeThread?.worktreePath ?? null,
                     serverProjection?.runs ?? [],
                   )
-                ? gt("Available once the thread's worktree is set up.")
+                ? gitStatusQuery.data?.vcs?.kind !== "jj"
+                  ? gt("Available once the thread's worktree is set up.")
+                  : vcsMessage(
+                      vcsMsg("Available once the thread's {value0} is set up.", {
+                        value0: localizedVcsTerminology(gitStatusQuery.data, messages)
+                          .workspaceNoun,
+                      }),
+                    )
                 : null;
   const openSideChatStable = useStableCallback(() => void sideChat.open());
   const openSurfaceInMainView = useOpenSurfaceInMainView(activeThreadRef);
   const sendSideChatStable = useStableCallback(sideChat.open);
   const { onConfirmRevertStable, onForkFromRunStable, onRevertTimelineTurnStable } =
     useTimelineRewind({
+      vcsActionsSupported: supportsVcsActions(gitStatusQuery.data),
       environmentId,
       routeThreadRef,
       routeThreadKey,
@@ -3040,6 +3078,7 @@ export default function ChatView(props: ChatViewProps) {
     onStartFromOriginChange,
     openProviderSetupStable,
   } = useComposerSelection({
+    vcsActionsSupported: supportsVcsActions(gitStatusQuery.data),
     environmentId,
     composerDraftTarget,
     draftThread,
@@ -3079,6 +3118,11 @@ export default function ChatView(props: ChatViewProps) {
     setThreadError,
   });
   const { onSend, captureDetachedSend } = useComposerSend({
+    vcsTerminology: localizedVcsTerminology(gitStatusQuery.data, messages),
+    vcsWorkspacePreparationBlocked:
+      !supportsVcsActions(gitStatusQuery.data) &&
+      (sendEnvMode === "worktree" || multipleModelSelections !== null) &&
+      activeThread?.worktreePath == null,
     environmentId,
     routeThreadKey,
     currentRouteThreadKeyRef,
@@ -3087,6 +3131,13 @@ export default function ChatView(props: ChatViewProps) {
     activeThread,
     activeThreadKey,
     activeThreadBranch,
+    ...(gitStatusQuery.data?.vcs?.kind === "jj"
+      ? {
+          worktreeBaseSelected: isLocalDraftThread
+            ? draftThread?.worktreeBaseSelected === true
+            : pendingServerThreadBranchEntryForThread?.branch != null,
+        }
+      : {}),
     activeProject,
     activeProjectIsScratch,
     activeProjectDefaultModelSelection,
@@ -3575,14 +3626,15 @@ export default function ChatView(props: ChatViewProps) {
             <ThreadFind onClose={focusComposerStable} />
             {isWorkspaceFileDragActive ? <WorkspaceFileDropOverlay /> : null}
             <ChatBannerLane
+              vcsUnsupportedReason={resolveVcsUnsupportedReason(gitStatusQuery.data)}
               environmentId={activeThread.environmentId}
               vcsFallbackNotice={
-                gitStatusCwd && gitStatusQuery.data?.vcs?.kind === "git"
+                gitStatusCwd && resolveVcsFallbackNotice(gitStatusQuery.data)
                   ? {
                       environmentId: activeThread.environmentId,
                       repository: gitStatusCwd,
-                      notice: gitStatusQuery.data.vcs.notice,
-                      reason: null,
+                      notice: resolveVcsFallbackNotice(gitStatusQuery.data)?.notice ?? null,
+                      reason: resolveVcsFallbackNotice(gitStatusQuery.data)?.reason ?? null,
                     }
                   : null
               }
@@ -3847,19 +3899,36 @@ export default function ChatView(props: ChatViewProps) {
                                 canResume={canResume}
                                 isRevertingCheckpoint={isRevertingCheckpoint}
                                 sendDisabledReason={
-                                  !canOperateThread
-                                    ? gt("This connection cannot change threads.")
-                                    : isEnvironmentChanging
-                                      ? gt("Preparing machine")
-                                      : isRevertingCheckpoint
-                                        ? gt("Rewinding conversation")
-                                        : feedbackUploading
-                                          ? gt("Sending feedback")
-                                          : threadDetailLoading
-                                            ? gt("Messages loading")
-                                            : worktreeSetupBlocksSend
-                                              ? gt("Preparing worktree")
-                                              : projectCloneSendBlockReason
+                                  !supportsVcsActions(gitStatusQuery.data) &&
+                                  (sendEnvMode === "worktree" ||
+                                    multipleModelSelections !== null) &&
+                                  activeThread?.worktreePath == null
+                                    ? resolveVcsUnsupportedReason(gitStatusQuery.data)
+                                    : !canOperateThread
+                                      ? gt("This connection cannot change threads.")
+                                      : isEnvironmentChanging
+                                        ? gt("Preparing machine")
+                                        : isRevertingCheckpoint
+                                          ? gt("Rewinding conversation")
+                                          : feedbackUploading
+                                            ? gt("Sending feedback")
+                                            : threadDetailLoading
+                                              ? gt("Messages loading")
+                                              : worktreeSetupBlocksSend
+                                                ? localizedVcsTerminology(
+                                                    gitStatusQuery.data,
+                                                    messages,
+                                                  ).kind === "git"
+                                                  ? gt("Preparing worktree")
+                                                  : vcsMessage(
+                                                      vcsMsg("Preparing {value0}", {
+                                                        value0: localizedVcsTerminology(
+                                                          gitStatusQuery.data,
+                                                          messages,
+                                                        ).workspaceNoun,
+                                                      }),
+                                                    )
+                                                : projectCloneSendBlockReason
                                 }
                                 isPreparingWorktree={isPreparingWorktree && !sendQueuesBehindSetup}
                                 bannerItems={
@@ -4072,7 +4141,9 @@ export default function ChatView(props: ChatViewProps) {
                 <BranchRestoreConfirmHost
                   threadKey={activeThreadKey}
                   threadBranch={localCheckoutBranchMismatch?.threadBranch ?? ""}
-                  canWriteSourceControl={canWriteSourceControl}
+                  canWriteSourceControl={
+                    canWriteSourceControl && supportsVcsActions(gitStatusQuery.data)
+                  }
                   onConfirm={handleSwitchCheckoutToThreadStable}
                 />
 
@@ -4263,7 +4334,9 @@ export default function ChatView(props: ChatViewProps) {
       checkpoints={serverProjection?.checkpoints}
       checkpointScopes={serverProjection?.checkpointScopes}
     >
-      {content}
+      <VcsTerminologyContext value={localizedVcsTerminology(gitStatusQuery.data, messages)}>
+        {content}
+      </VcsTerminologyContext>
     </FileMetadataThreadProvider>
   );
 }

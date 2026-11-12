@@ -1,8 +1,13 @@
+import { useMessages as useVcsMessages } from "gt-react";
+import { Var } from "gt-react";
+import { msg as vcsMsg } from "gt-react";
 import { useLegendListRef } from "~/hooks/useLegendListRef";
+import { useContext } from "react";
+import { VcsTerminologyContext } from "../state/vcs";
 import type { VcsRef } from "@t3tools/contracts";
 import { LegendList, type LegendListRef } from "@legendapp/list/react";
 import { useId, useRef, useState, type ComponentProps, type ReactNode } from "react";
-import { T, useGT } from "gt-react";
+import { T } from "gt-react";
 
 import { MiddleTruncate } from "./ui/middle-truncate";
 import { cn } from "../lib/utils";
@@ -59,7 +64,9 @@ export function BranchPicker({
   getItemType?: ((value: string) => string) | undefined;
   children: ReactNode;
 }) {
+  const vcsMessage = useVcsMessages();
   const gt = useGT();
+  const terminology = useContext(VcsTerminologyContext);
   const highlightedValueRef = useRef<string | null>(null);
   const startFromOriginSwitchId = useId();
   const handleOpenChange = (nextOpen: boolean) => {
@@ -107,7 +114,13 @@ export function BranchPicker({
       {children}
       <ComboboxPopup {...popupProps}>
         <ComboboxSearchInput
-          placeholder={gt("Search refs...")}
+          placeholder={
+            terminology.kind === "git"
+              ? gt("Search refs...")
+              : vcsMessage(
+                  vcsMsg("Search {value0}...", { value0: terminology.genericRefNounPlural }),
+                )
+          }
           value={query}
           onChange={(event) => {
             onQueryChange(event.target.value);
@@ -129,7 +142,15 @@ export function BranchPicker({
         />
         <div className="flex min-h-0 flex-1 flex-col overflow-hidden">
           <ComboboxEmpty>
-            <T>No refs found.</T>
+            <>
+              {terminology.kind === "git" ? (
+                <T>No refs found.</T>
+              ) : (
+                <T>
+                  No <Var>{terminology.genericRefNounPlural}</Var> found.
+                </T>
+              )}
+            </>
           </ComboboxEmpty>
           <div className="relative flex min-h-0 w-full max-h-56 flex-1 flex-col overflow-hidden">
             <ComboboxListVirtualized className="flex size-full min-h-0 min-w-0 flex-col">
@@ -176,18 +197,35 @@ export function BranchPicker({
                       id={startFromOriginSwitchId}
                       checked={originControl.checked}
                       size="sm"
-                      aria-label={gt("Start worktree from remote")}
+                      aria-label={
+                        terminology.kind === "git"
+                          ? gt("Start worktree from remote")
+                          : vcsMessage(
+                              vcsMsg("Start {value0} from remote", {
+                                value0: terminology.workspaceNoun,
+                              }),
+                            )
+                      }
                       onCheckedChange={(checked) => originControl.onCheckedChange(Boolean(checked))}
                     />
                   </label>
                 }
               />
               <TooltipPopup side="top" className="max-w-72 whitespace-normal">
-                <T>
-                  Uses the latest commit of the base branch’s tracked remote branch, even if its
-                  name differs. Otherwise uses the same-named branch on origin. Uses your local
-                  branch if that remote branch is missing.
-                </T>
+                {terminology.kind === "git" ? (
+                  <T>
+                    Uses the latest commit of the base branch’s tracked remote branch, even if its
+                    name differs. Otherwise uses the same-named branch on origin. Uses your local
+                    branch if that remote branch is missing.
+                  </T>
+                ) : (
+                  vcsMessage(
+                    vcsMsg(
+                      "Uses the latest commit of the base {value0}’s tracked remote {value0}, even if its name differs. Otherwise uses the same-named {value0} on origin. Uses your local {value0} if that remote {value0} is missing.",
+                      { value0: terminology.refNoun },
+                    ),
+                  )
+                )}
               </TooltipPopup>
             </Tooltip>
           ) : null}
@@ -217,13 +255,16 @@ export function BranchPickerRefItem({
   onContextMenu?: ComponentProps<typeof ComboboxItem>["onContextMenu"];
 }) {
   const gt = useGT();
+  const terminology = useContext(VcsTerminologyContext);
   const itemValue = refName.name;
   const hasSecondaryWorktree =
     refName.worktreePath && activeProjectCwd && refName.worktreePath !== activeProjectCwd;
   const badge = refName.current
     ? gt("current", { $context: "git ref badge, the checked-out branch" })
     : hasSecondaryWorktree
-      ? gt("worktree", { $context: "git ref badge, checked out in another worktree" })
+      ? terminology.kind === "git"
+        ? gt("worktree", { $context: "git ref badge, checked out in another worktree" })
+        : terminology.workspaceNoun
       : refName.isRemote
         ? gt("remote", { $context: "git ref badge, a remote branch" })
         : refName.isDefault
@@ -246,3 +287,4 @@ export function BranchPickerRefItem({
     </ComboboxItem>
   );
 }
+import { useGT } from "gt-react";
