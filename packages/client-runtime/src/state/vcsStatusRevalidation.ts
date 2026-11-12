@@ -23,7 +23,10 @@ export function createVcsStatusRevalidationAtomFamily<R>(input: {
   readonly connected?: (environmentId: EnvironmentId) => Atom.Atom<boolean>;
   readonly subscribeWake?: (wake: () => void) => () => void;
   readonly wakeDebounceMs?: number;
-  readonly onRefreshed?: (result: AtomCommandResult<R, unknown>) => void;
+  readonly onRefreshed?: (
+    result: AtomCommandResult<R, unknown>,
+    target: VcsStatusRevalidationTarget,
+  ) => void;
 }) {
   const family = Atom.family((target: VcsStatusRevalidationTarget) => {
     const { environmentId, cwd } = target;
@@ -36,7 +39,7 @@ export function createVcsStatusRevalidationAtomFamily<R>(input: {
         { environmentId, input: { cwd } },
         { reportFailure: false },
       );
-      input.onRefreshed?.(result);
+      input.onRefreshed?.(result, target);
     };
 
     const wakeAtom = Atom.make((get) => {

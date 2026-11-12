@@ -1,8 +1,10 @@
+import { msg as vcsMsg } from "gt-react-native";
 import { parsePatchFiles } from "@pierre/diffs/utils/parsePatchFiles";
 import type { ChangeTypes, FileDiffMetadata } from "@pierre/diffs/types";
 import type { ThreadCheckpointSummary } from "@t3tools/client-runtime/state/thread-checkpoints";
 import { turnChanges, turnHasChanges } from "@t3tools/client-runtime/state/thread-repositories";
 import type { ReviewDiffPreviewSource } from "@t3tools/contracts";
+import { DEFAULT_VCS_TERMINOLOGY, type VcsTerminology } from "@t3tools/shared/vcs";
 import { quoteGitPatchPath } from "@t3tools/shared/gitPatchPath";
 import * as Arr from "effect/Array";
 import { pipe } from "effect/Function";
@@ -21,7 +23,6 @@ const GIT_PLACEHOLDER_TITLES = {
   "working-tree": msg("Uncommitted", { $context: "diff section: working tree" }),
   "branch-range": msg("Changes", { $context: "diff section: branch changes" }),
 } as const satisfies Record<ReviewGitSectionKind, unknown>;
-const UNCOMMITTED_SUBTITLE = msg("Staged, unstaged, and untracked files");
 
 /** A folder of a turn's patch: the thread's own (`relativePath` empty) or a tracked repository. */
 export interface ReviewRepositoryGroup {
@@ -184,14 +185,22 @@ const readyCheckpointOrder = Order.make<ThreadCheckpointSummary>(
   compareCheckpointTurnCountDescending,
 );
 
-function gitSubtitle(section: ReviewDiffPreviewSource, resolve: MessageResolver): string | null {
+function gitSubtitle(
+  section: ReviewDiffPreviewSource,
+  vcs: VcsTerminology,
+  vcsMessage: MessageResolver,
+): string | null {
   if (section.kind === "working-tree") {
-    return resolve(UNCOMMITTED_SUBTITLE);
+    return vcs.workingTreeSubtitle;
   }
   if (section.baseRef) {
     return `${section.baseRef} ... ${section.headRef ?? "HEAD"}`;
   }
-  return resolve(msg("Base branch unavailable"));
+  return vcsMessage(
+    vcs.kind === "git"
+      ? vcsMsg("Base branch unavailable")
+      : vcsMsg("Base {value0} unavailable", { value0: vcs.refNoun }),
+  );
 }
 
 function stripTrailingNewline(value: string): string {
@@ -571,6 +580,7 @@ export function reviewTurnDiffsBySectionId(
 }
 
 export function buildReviewSectionItems(input: {
+  readonly terminology?: VcsTerminology;
   readonly checkpoints: ReadonlyArray<ThreadCheckpointSummary>;
   readonly gitSections: ReadonlyArray<ReviewDiffPreviewSource>;
   readonly turnDiffById: Readonly<Record<string, string | undefined>>;
@@ -610,7 +620,7 @@ export function buildReviewSectionItems(input: {
           id: `git:${kind}`,
           kind,
           title: section.title,
-          subtitle: gitSubtitle(section, resolve),
+          subtitle: gitSubtitle(section, input.terminology ?? DEFAULT_VCS_TERMINOLOGY, resolve),
           diff: section.diff,
           source: section,
           ...(section.files ? { files: section.files } : {}),

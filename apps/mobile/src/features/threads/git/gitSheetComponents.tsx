@@ -40,13 +40,14 @@ export function statusSummary(
     readonly sourceControlProvider?: { readonly kind: string } | null;
   } | null,
   resolve: MessageResolver,
+  kind: "git" | "jj" | "unknown" = "git",
 ): string {
   if (!gitStatus) {
-    return resolve(msg("Loading branch status\u2026"));
+    return resolve(kind !== "jj" ? msg("Loading branch status\u2026") : msg("Loading source control status\u2026"));
   }
 
   if (!gitStatus.isRepo) {
-    return resolve(msg("Not a git repository"));
+    return resolve(kind !== "jj" ? msg("Not a git repository") : msg("Not a source control repository"));
   }
 
   const parts: string[] = [];

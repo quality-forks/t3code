@@ -1,3 +1,4 @@
+import { useRepositoryVcs } from "../../state/vcs";
 import { useAtomValue } from "@effect/atom-react";
 import { resolveFilesystemReadAccess } from "@t3tools/client-runtime/state/filesystem";
 import { Atom } from "effect/reactivity";
@@ -61,6 +62,7 @@ export function useReviewSections(input: {
   const { canReadFiles } = fileAccess;
   const selectedThread = useSelectedThreadProjection();
   const { selectedThreadCwd } = useSelectedThreadWorktree();
+  const { terminology } = useRepositoryVcs(environmentId ?? null, selectedThreadCwd);
   const { selectedThreadProject } = useThreadSelection();
   const diffPreviewQuery = (sourceKind: ReviewGitSectionKind) =>
     canReadFiles && enabled && environmentId !== undefined && selectedThreadCwd !== null
@@ -104,6 +106,7 @@ export function useReviewSections(input: {
   // Turns show their last answered diff; the active turn's live query below overrides it.
   // Section ids and the selection do not depend on the live query, so they are resolved first.
   const cachedSections = buildReviewSectionItems({
+    terminology,
     checkpoints: readyCheckpoints,
     gitSections: canReadFiles || fileAccess.isPending ? gitSections : [],
     turnDiffById: reviewTurnDiffsBySectionId(readyCheckpoints, lastTurnDiffs),

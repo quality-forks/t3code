@@ -1,3 +1,5 @@
+import { useMessages as useVcsMessages } from "gt-react-native";
+import { msg as vcsMsg } from "gt-react-native";
 import { localizedVcsTerminology } from "@t3tools/client-runtime/state/vcs";
 import { resolveVcsUnsupportedReason } from "@t3tools/shared/vcs";
 import * as Dialog from "../../../components/ui/Dialog";
@@ -79,6 +81,7 @@ export function GitOverviewSheet(props: GitOverviewSheetProps) {
 }
 
 function GitOverviewSheetContent(props: GitOverviewSheetProps) {
+  const vcsMessage = useVcsMessages();
   const gt = useGT();
   const m = useMessages();
   const navigation = useNavigation();
@@ -170,7 +173,7 @@ function GitOverviewSheetContent(props: GitOverviewSheetProps) {
           ? gt("{count, plural, one {{count} repository} other {{count} repositories}}", {
               count: trackedRepositoryCount,
             })
-          : (unsupportedReason ?? statusSummary(gitStatus.data, m));
+          : (unsupportedReason ?? statusSummary(gitStatus.data, m, terminology.kind));
   const currentWorktreePath = repository === undefined ? selectedThreadWorktreePath : null;
   const gitOperationLabel = gitState.gitOperationLabel;
   const busy = gitOperationLabel !== null;
@@ -441,9 +444,11 @@ function GitOverviewSheetContent(props: GitOverviewSheetProps) {
                     ? gt("Inspect turn diffs")
                     : terminology.kind === "git"
                       ? gt("Inspect changes, uncommitted edits, and turn diffs")
-                      : gt("Inspect changes, {value0} edits, and turn diffs", {
-                          value0: terminology.workingTreeNoun,
-                        })
+                      : vcsMessage(
+                          vcsMsg("Inspect changes, {value0} edits, and turn diffs", {
+                            value0: terminology.workingTreeEditsAdjective,
+                          }),
+                        )
                 }
                 disabled={busy || !(isRepo || trackedRepositoryCount > 0)}
                 onPress={() => {

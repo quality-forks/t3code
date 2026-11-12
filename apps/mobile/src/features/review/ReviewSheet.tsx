@@ -1,3 +1,5 @@
+import { useMessages as useVcsMessages } from "gt-react-native";
+import { msg as vcsMsg } from "gt-react-native";
 import { settlePromise, squashAtomCommandFailure } from "@t3tools/client-runtime/state/runtime";
 import { AsyncResult } from "effect/reactivity";
 import type { EnvironmentId, ThreadId } from "@t3tools/contracts";
@@ -40,6 +42,8 @@ import {
   useWorkspacePaneState,
 } from "../layout/AdaptiveWorkspaceLayout";
 import { useSelectedThreadWorktree } from "../../state/use-selected-thread-worktree";
+import { useThreadSelection } from "../../state/use-thread-selection";
+import { useRepositoryVcs } from "../../state/vcs";
 import { useReviewCacheForThread } from "./reviewState";
 import {
   isNativeReviewDiffDrawEvent,
@@ -74,6 +78,12 @@ function ReviewHeader(
   },
 ) {
   const { toggleAuxiliaryPane } = useAdaptiveWorkspaceLayout();
+  const { selectedThread } = useThreadSelection();
+  const { selectedThreadCwd } = useSelectedThreadWorktree();
+  const { terminology: vcs } = useRepositoryVcs(
+    selectedThread?.environmentId ?? null,
+    selectedThreadCwd,
+  );
   const { panes } = useWorkspacePaneState();
   const presentation = useReviewHeaderPresentation(props);
   const gt = useGT();
@@ -125,7 +135,9 @@ function ReviewHeader(
                       ),
                       sectionAction(
                         props.sectionMenu.workingTree,
-                        gt("Uncommitted", { $context: "diff section: working tree" }),
+                        vcs.kind === "git"
+                          ? gt("Uncommitted", { $context: "diff section: working tree" })
+                          : vcs.workingTreeDiffLabel,
                       ),
                       sectionAction(props.sectionMenu.latestTurn, gt("Latest turn")),
                     ],
@@ -396,6 +408,7 @@ type ReviewSheetProps = StaticScreenProps<{
 }>;
 
 export function ReviewSheet(props: ReviewSheetProps) {
+  const vcsMessage = useVcsMessages();
   const gt = useGT();
   const reduceMotion = useReduceMotionEnabled();
   const { nativeReviewDiffStyle } = useAppearanceCodeSurface();
@@ -412,6 +425,7 @@ export function ReviewSheet(props: ReviewSheetProps) {
   const reviewCache = useReviewCacheForThread({ environmentId, threadId });
   const { selectedThreadCwd } = useSelectedThreadWorktree();
   const topContentInset = useContentTopInset();
+  const { terminology: vcs } = useRepositoryVcs(environmentId, selectedThreadCwd);
   const bottomContentInset = useSheetContentBottomInset();
 
   const {
@@ -825,9 +839,16 @@ export function ReviewSheet(props: ReviewSheetProps) {
                 error ? null : (
                   <ContentStatus
                     title={gt("No review diffs")}
-                    detail={gt(
-                      "This thread has no ready turn diffs and the worktree diff is empty.",
-                    )}
+                    detail={
+                      vcs.kind === "git"
+                        ? gt("This thread has no ready turn diffs and the worktree diff is empty.")
+                        : vcsMessage(
+                            vcsMsg(
+                              "This thread has no ready turn diffs and the {value0} diff is empty.",
+                              { value0: vcs.workspaceNoun },
+                            ),
+                          )
+                    }
                   />
                 )
               ) : error && selectedSection.diff === null ? null : selectedSection.isLoading &&

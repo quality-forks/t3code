@@ -1,3 +1,5 @@
+import { useMessages as useVcsMessages } from "gt-react-native";
+import { msg as vcsMsg } from "gt-react-native";
 import { FitSheet } from "../../../components/ui/FitSheet";
 import { SheetHeader } from "../../../components/ui/SheetHeader";
 import { Button } from "../../../components/ui/Button";
@@ -20,6 +22,7 @@ import { useSelectedThreadGitActions } from "../../../state/use-selected-thread-
 import { useSelectedThreadGitState } from "../../../state/use-selected-thread-git-state";
 import { useSelectedThreadWorktree } from "../../../state/use-selected-thread-worktree";
 import { vcsEnvironment } from "../../../state/vcs";
+import { localizedVcsTerminology } from "@t3tools/client-runtime/state/vcs";
 
 type GitCommitSheetProps = StaticScreenProps<
   {
@@ -30,6 +33,7 @@ type GitCommitSheetProps = StaticScreenProps<
 
 export function GitCommitSheet(props: GitCommitSheetProps) {
   const repository = gitRepositoryTargetFromRoute(props.route.params);
+  const vcsMessage = useVcsMessages();
   const gt = useGT();
   const navigation = useNavigation();
   const { selectedThread } = useThreadSelection();
@@ -48,6 +52,7 @@ export function GitCommitSheet(props: GitCommitSheetProps) {
       : null,
   );
 
+  const vcs = localizedVcsTerminology(gitStatus.data, vcsMessage);
   const busy = gitState.gitOperationLabel !== null;
   const isDefaultRef = gitStatus.data?.isDefaultRef ?? false;
   const allFiles = gitStatus.data?.workingTree?.files ?? [];
@@ -78,11 +83,15 @@ export function GitCommitSheet(props: GitCommitSheetProps) {
       header={
         <SheetHeader
           title={gt("Commit changes")}
-          subtitle={[repository?.name, gitStatus.data?.refName ?? gt("(detached HEAD)")]
+          subtitle={[repository?.name, gitStatus.data?.refName ?? vcs.noRefDisplay]
             .filter(Boolean)
             .join(" · ")}
           onCancel={() => navigation.goBack()}
-          accessibilityLabel={gt("Cancel commit")}
+          accessibilityLabel={
+            vcs.kind === "git"
+              ? gt("Cancel commit")
+              : vcsMessage(vcsMsg("Cancel {value0}", { value0: vcs.changeNoun }))
+          }
         />
       }
       keyboardShouldPersistTaps="handled"
@@ -90,9 +99,21 @@ export function GitCommitSheet(props: GitCommitSheetProps) {
       automaticallyAdjustKeyboardInsets
       contentContainerClassName="px-5 pt-4 gap-5"
     >
+      {vcs.hooksNotice ? (
+        <Text className="text-xs text-foreground-muted">{vcs.hooksNotice}</Text>
+      ) : null}
       {isDefaultRef ? (
         <Text className="text-sm text-warning-foreground">
-          <T>You’re on the default branch. You can create a new branch when committing.</T>
+          {vcs.kind === "git" ? (
+            <T>You’re on the default branch. You can create a new branch when committing.</T>
+          ) : (
+            vcsMessage(
+              vcsMsg(
+                "You’re on the default {value0}. You can create a new {value0} when committing.",
+                { value0: vcs.refNoun },
+              ),
+            )
+          )}
         </Text>
       ) : null}
       <View className="gap-2">
@@ -223,7 +244,7 @@ export function GitCommitSheet(props: GitCommitSheetProps) {
           onPress={() => void runCommitAction(false)}
         />
         <Button
-          label={gt("Commit on a new branch")}
+          label={vcs.changeOnNewRefMobileLabel}
           icon="arrow.branch"
           tone="text"
           fullWidth

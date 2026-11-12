@@ -1,3 +1,5 @@
+import { useMessages as useVcsMessages } from "gt-react-native";
+import { msg as vcsMsg } from "gt-react-native";
 import { resolveDefaultBranchActionDialogCopy } from "@t3tools/client-runtime/state/vcs";
 import { sourceControlClients } from "@t3tools/client-runtime/source-control-clients";
 import { resolveAutoFeatureBranchName } from "@t3tools/shared/git";
@@ -22,6 +24,8 @@ import {
 import { vcsEnvironment } from "../../../state/vcs";
 import { useReturnToThread } from "../thread-inspector-navigation";
 import { SheetActionButton } from "./gitSheetComponents";
+import { useSelectedThreadWorktree } from "../../../state/use-selected-thread-worktree";
+import { useRepositoryVcs } from "../../../state/vcs";
 
 type GitConfirmSheetProps = StaticScreenProps<
   {
@@ -36,6 +40,7 @@ type GitConfirmSheetProps = StaticScreenProps<
 >;
 
 export function GitConfirmSheet(props: GitConfirmSheetProps) {
+  const vcsMessage = useVcsMessages();
   const gt = useGT();
   const messages = useMessages();
   const navigation = useNavigation();
@@ -53,6 +58,11 @@ export function GitConfirmSheet(props: GitConfirmSheetProps) {
           input: { cwd: repository.cwd },
         })
       : null,
+  );
+  const threadWorktree = useSelectedThreadWorktree();
+  const { terminology: vcs } = useRepositoryVcs(
+    selectedThread?.environmentId ?? null,
+    repository?.cwd ?? threadWorktree.selectedThreadCwd,
   );
   const terminology = sourceControlClients.get(
     repository === undefined
@@ -82,11 +92,12 @@ export function GitConfirmSheet(props: GitConfirmSheetProps) {
               branchName,
               includesCommit,
               terminology,
+              vcsTerminology: vcs,
             },
             messages,
           )
         : null,
-    [branchName, confirmAction, includesCommit, messages, terminology],
+    [branchName, confirmAction, includesCommit, messages, terminology, vcs],
   );
 
   const continuePendingAction = async () => {
@@ -145,7 +156,12 @@ export function GitConfirmSheet(props: GitConfirmSheetProps) {
     >
       <SheetIntro
         eyebrow={gt("Confirm", { $context: "eyebrow label above a confirmation title" })}
-        title={copy?.title ?? gt("Run action on default branch?")}
+        title={
+          copy?.title ??
+          (vcs.kind === "git"
+            ? gt("Run action on default branch?")
+            : vcsMessage(vcsMsg("Run action on default {value0}?", { value0: vcs.refNoun })))
+        }
         description={copy?.description ?? gt("Choose how to continue.")}
       />
 
@@ -158,7 +174,7 @@ export function GitConfirmSheet(props: GitConfirmSheetProps) {
         />
         <SheetActionButton
           icon="arrow.branch"
-          label={gt("Feature branch & continue")}
+          label={vcs.featureCheckoutLabel("mobile")}
           disabled={!canCreateFeatureBranch}
           tone="primary"
           onPress={() => void movePendingActionToFeatureBranch()}

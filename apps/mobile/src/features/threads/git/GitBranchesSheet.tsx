@@ -1,3 +1,5 @@
+import { useMessages as useVcsMessages } from "gt-react-native";
+import { msg as vcsMsg } from "gt-react-native";
 import { localizedVcsTerminology } from "@t3tools/client-runtime/state/vcs";
 import { resolveVcsUnsupportedReason } from "@t3tools/shared/vcs";
 import { sanitizeFeatureBranchName } from "@t3tools/shared/git";
@@ -25,6 +27,7 @@ type GitBranchesSheetProps = StaticScreenProps<{
 }>;
 
 export function GitBranchesSheet(_props: GitBranchesSheetProps) {
+  const vcsMessage = useVcsMessages();
   const gt = useGT();
   const messages = useMessages();
   const navigation = useNavigation();
@@ -130,22 +133,52 @@ export function GitBranchesSheet(_props: GitBranchesSheetProps) {
         }
       >
         <FormField
-          label={gt("Base branch")}
+          label={
+            terminology.kind === "git"
+              ? gt("Base branch")
+              : vcsMessage(vcsMsg("Base {value0}", { value0: terminology.refNoun }))
+          }
           value={worktreeBaseBranch}
           onChangeText={setWorktreeBaseBranchOverride}
           placeholder="main"
-          accessibilityLabel={gt("Worktree base branch")}
+          accessibilityLabel={
+            terminology.kind === "git"
+              ? gt("Worktree base branch")
+              : vcsMessage(
+                  vcsMsg("{value0} base {value1}", {
+                    value0: terminology.workspaceNounTitle,
+                    value1: terminology.refNoun,
+                  }),
+                )
+          }
         />
         <FormField
-          label={gt("New branch")}
+          label={
+            terminology.kind === "git"
+              ? gt("New branch")
+              : vcsMessage(vcsMsg("New {value0}", { value0: terminology.refNoun }))
+          }
           value={worktreeBranchName}
           onChangeText={setWorktreeBranchName}
           placeholder="feature/mobile-thread"
-          accessibilityLabel={gt("Worktree branch name")}
+          accessibilityLabel={
+            terminology.kind === "git"
+              ? gt("Worktree branch name")
+              : vcsMessage(
+                  vcsMsg("{value0} {value1} name", {
+                    value0: terminology.workspaceNounTitle,
+                    value1: terminology.refNoun,
+                  }),
+                )
+          }
         />
         <SheetActionButton
           icon="square.split.2x1"
-          label={gt("Create worktree")}
+          label={
+            terminology.kind === "git"
+              ? gt("Create worktree")
+              : vcsMessage(vcsMsg("Create {value0}", { value0: terminology.workspaceNoun }))
+          }
           tone="primary"
           disabled={
             !canChangeThreadBranch ||
@@ -169,13 +202,23 @@ export function GitBranchesSheet(_props: GitBranchesSheetProps) {
       </FormSection>
 
       <ListSection
-        title={gt("Existing branches")}
+        title={
+          terminology.kind === "git"
+            ? gt("Existing branches")
+            : vcsMessage(vcsMsg("Existing {value0}", { value0: terminology.refNounPlural }))
+        }
         footer={
           unsupportedReason ??
           (branchesLoading
-            ? gt("Loading branches...")
+            ? terminology.kind === "git"
+              ? gt("Loading branches...")
+              : vcsMessage(vcsMsg("Loading {value0}...", { value0: terminology.refNounPlural }))
             : availableBranches.length === 0
-              ? gt("No local branches found.")
+              ? terminology.kind === "git"
+                ? gt("No local branches found.")
+                : vcsMessage(
+                    vcsMsg("No local {value0} found.", { value0: terminology.refNounPlural }),
+                  )
               : undefined)
         }
       >
@@ -184,10 +227,18 @@ export function GitBranchesSheet(_props: GitBranchesSheetProps) {
           const subtitle = branch.worktreePath
             ? branch.worktreePath === currentWorktreePath
               ? gt("Checked out in this thread")
-              : gt("Checked out in another worktree")
+              : terminology.kind === "git"
+                ? gt("Checked out in another worktree")
+                : vcsMessage(
+                    vcsMsg("Checked out in another {value0}", {
+                      value0: terminology.workspaceNoun,
+                    }),
+                  )
             : branch.isDefault
-              ? gt("Default branch")
-              : gt("Local branch");
+              ? terminology.defaultRefLabel
+              : terminology.kind === "git"
+                ? gt("Local branch")
+                : vcsMessage(vcsMsg("Local {value0}", { value0: terminology.refNoun }));
 
           return (
             <ListChoiceRow
