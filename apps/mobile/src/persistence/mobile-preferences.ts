@@ -134,6 +134,7 @@ const ThreadProject = Schema.Struct({
 const isThreadProject = Schema.is(ThreadProject);
 
 export interface Preferences {
+  readonly dismissedVcsNotices?: Readonly<Record<string, string>>;
   readonly navigationTabOrder?: readonly string[];
   readonly hiddenNavigationTabs?: readonly string[];
   /** Whether pull requests or issues last held the tab bar slot they share. */
@@ -251,6 +252,7 @@ function sanitizePreferences(parsed: Preferences): Preferences {
     connectOnboardingOptOutAccounts?: ReadonlyArray<string>;
     collapsedProjectGroups?: readonly string[];
     dismissedDatabaseStorageNotices?: readonly string[];
+    dismissedVcsNotices?: Readonly<Record<string, string>>;
     composerEnterBehavior?: ComposerEnterBehavior;
     followUpBehavior?: FollowUpBehavior;
     language?: string;
@@ -355,6 +357,17 @@ function sanitizePreferences(parsed: Preferences): Preferences {
   if (Array.isArray(parsed.collapsedProjectGroups)) {
     preferences.collapsedProjectGroups = parsed.collapsedProjectGroups.filter(
       (key): key is string => typeof key === "string",
+    );
+  }
+  if (
+    parsed.dismissedVcsNotices &&
+    typeof parsed.dismissedVcsNotices === "object" &&
+    !Array.isArray(parsed.dismissedVcsNotices)
+  ) {
+    preferences.dismissedVcsNotices = Object.fromEntries(
+      Object.entries(parsed.dismissedVcsNotices).filter(
+        (entry): entry is [string, string] => typeof entry[1] === "string",
+      ),
     );
   }
   if (Array.isArray(parsed.dismissedDatabaseStorageNotices)) {

@@ -26,7 +26,7 @@ import { AsyncResult } from "effect/reactivity";
 
 import { useBranches } from "./queries";
 import { threadEnvironment } from "./threads";
-import { vcsActionManager, vcsEnvironment } from "./vcs";
+import { useRepositoryVcs, vcsActionManager, vcsEnvironment } from "./vcs";
 import { uuidv4 } from "../lib/uuid";
 import { appAtomRegistry } from "./atom-registry";
 import { readEnvironmentScope, useEnvironmentScope } from "./session";
@@ -81,7 +81,7 @@ export function useSelectedThreadGitActions(repository?: GitRepositoryTarget) {
   const reportGitActionResult = (result: GitActionResultNotification) => {
     if (threadRef !== null) showGitActionResult({ ...result, threadRef });
   };
-  const canWriteSourceControl = useEnvironmentScope(
+  const hasWriteScope = useEnvironmentScope(
     selectedThread?.environmentId ?? null,
     AuthSourceControlWriteScope,
   );
@@ -89,15 +89,17 @@ export function useSelectedThreadGitActions(repository?: GitRepositoryTarget) {
     selectedThread?.environmentId ?? null,
     AuthOrchestrationOperateScope,
   );
-  const canChangeThreadBranch = canWriteSourceControl && canOperateThread;
-  // Only the thread's own folder has a branch the thread records, which takes operating the thread.
   const followsThreadBranch = repository === undefined;
-  const canCreateFeatureBranch = followsThreadBranch
-    ? canChangeThreadBranch
-    : canWriteSourceControl;
   const threadWorktree = useSelectedThreadWorktree();
   const { selectedThreadWorktreePath } = threadWorktree;
   const selectedThreadCwd = repository?.cwd ?? threadWorktree.selectedThreadCwd;
+  const { actionsSupported } = useRepositoryVcs(
+    selectedThread?.environmentId ?? null,
+    selectedThreadCwd,
+  );
+  const canWriteSourceControl = hasWriteScope && actionsSupported;
+  const canChangeThreadBranch = canWriteSourceControl && canOperateThread;
+  const canCreateFeatureBranch = followsThreadBranch ? canChangeThreadBranch : canWriteSourceControl;
   const runStackedAction = useAtomCommand(
     vcsActionManager.runStackedAction({
       environmentId: selectedThread?.environmentId ?? null,

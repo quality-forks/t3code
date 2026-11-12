@@ -9,6 +9,13 @@ const EMPTY_ASYNC_RESULT_ATOM = Atom.make(AsyncResult.initial<never, never>(fals
   Atom.withLabel("mobile-environment-query:empty"),
 );
 
+export function useEnvironmentQuerySelector<A, E, B>(
+  atom: Atom.Atom<AsyncResult.AsyncResult<A, E>> | null,
+  select: (result: AsyncResult.AsyncResult<A, E>) => B,
+): B {
+  return useAtomValue(atom ?? EMPTY_ASYNC_RESULT_ATOM, select);
+}
+
 export interface EnvironmentQueryView<A> {
   readonly data: A | null;
   readonly successResult: AsyncResult.Success<A, unknown> | null;

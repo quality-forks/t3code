@@ -1,6 +1,7 @@
 import { AuthOrchestrationOperateScope, AuthSourceControlWriteScope } from "@t3tools/contracts";
 import type { VcsListRefsResult } from "@t3tools/contracts";
 import { resolveAutoFeatureBranchName } from "@t3tools/shared/git";
+import { GIT_VCS_TERMINOLOGY } from "@t3tools/shared/vcs";
 import * as Cause from "effect/Cause";
 import { AsyncResult } from "effect/reactivity";
 import { beforeEach, describe, expect, it, vi } from "vite-plus/test";
@@ -85,6 +86,7 @@ vi.mock("./threads", () => ({
   },
 }));
 vi.mock("./vcs", () => ({
+  useRepositoryVcs: () => ({ actionsSupported: true, terminology: GIT_VCS_TERMINOLOGY }),
   vcsEnvironment: {
     readRefs: state.readRefs,
     refreshStatus: async () => {
