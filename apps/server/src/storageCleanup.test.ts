@@ -1,4 +1,6 @@
 import * as NodeCrypto from "@effect/platform-node/NodeCrypto";
+import type * as SecureRandom from "effect/crypto/SecureRandom";
+import type { ChildProcessSpawner } from "effect/process";
 import * as NodeServices from "@effect/platform-node/NodeServices";
 import * as Clock from "effect/Clock";
 import * as Effect from "effect/Effect";
@@ -682,6 +684,8 @@ const runCleanupTest = <A, E>(
     E,
     | FileSystem.FileSystem
     | Digest.Digest
+    | SecureRandom.SecureRandom
+    | ChildProcessSpawner.ChildProcessSpawner
     | ServerConfig.ServerConfig
     | GitVcsDriver.GitVcsDriver
     | Path.Path

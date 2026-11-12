@@ -98,7 +98,14 @@ Jujutsu 0.46 or newer and a colocated main repository are required. An unusable 
 reports its refusal when explicitly pinned to jj. Automatic detection falls back to a usable Git
 checkout at the same real root when jj is unavailable or unsupported, with a dismissible notice.
 
-Automatic cleanup preserves jj workspaces. A command reporting a stale working copy or concurrent
+Automatic cleanup selects the shared disk inspector's blanket gitlink refusal policy, even for uninitialized submodules; manual removal selects the absent-or-empty policy.
+
+Automatic cleanup can remove idle T3-managed secondary jj workspaces after checking bookmarks,
+ancestry, tracked files and the configured local-file policy. Stale or uncertain workspaces are
+kept. Before recursive removal starts, failed cleanup preserves files for restoration or logs their
+recovery location. Once recursive removal starts, failures (including interruption and defects)
+log the location of any remaining files; full preservation is no longer guaranteed.
+A command reporting a stale working copy or concurrent
 modification triggers `jj workspace update-stale` and one retry. Pure reads using
 `--ignore-working-copy` and cleanup inspections never repair workspaces. Repair can overwrite
 unsnapshotted files; persistent failures retain jj's diagnostic.
@@ -109,6 +116,19 @@ a same-named local bookmark contains unpublished commits. Tracking does not repl
 Bookmark policy checks literal names, without stripping `refs/`, `heads/`, `remotes/` or remote prefixes. Private `t3code/import/` bookmarks are hidden from listings and automatic default/nearest-bookmark selection. Switch and workspace requests refuse that literal prefix, but explicit revision selection (including review refs and other spellings) is not a protection boundary: the same commit is accessible by id. Ordinary remote selection refuses to create a reserved local bookmark; choose another local name instead. Existing local PR aliases remain selectable, and controlled PR import may create and track them. Remote-qualified workspace bases such as `origin/main` retain their existing remote resolution.
 
 Non-forced manual workspace removal checks snapshot diagnostics and independently inspects tracked and non-ignored untracked files against the snapshot using a temporary Git index in `JjDiskInspection.ts`. Submodule paths must be absent or empty directories, with no repository state; initialized, nonempty or uncertain paths block removal. Incomplete snapshots or inconclusive disk inspection keep the files and report the reason. Explicit force retains its destructive behavior.
+
+Only registered, T3-managed secondary workspaces qualify for automatic cleanup. Main and external
+workspaces are retained. Empty `@` is insufficient: a description, conflicts, unbookmarked ancestry,
+tracked edits, stale state or uncertain inspection prevents removal. The configured keep policy
+also protects untracked files, or ignored files except `node_modules`, as requested. Active runs,
+sessions, terminals, workspace leases and grace periods remain blockers. Cleanup does not move
+bookmarks or repair stale workspaces. Removal rechecks eligibility, moves the checkout to a sibling
+holding directory and verifies files and registration before forgetting it. Failures before recursive
+removal preserve files for restoration or log their recovery path; failures after removal starts log
+the location of any remaining files without guaranteeing full preservation.
+See [`JjStorageCleanup.ts`](../../apps/server/src/jj/JjStorageCleanup.ts)
+and [`storageCleanup.ts`](../../apps/server/src/storageCleanup.ts).
+
 
 ## Commit, push and pull preserve the user's change
 

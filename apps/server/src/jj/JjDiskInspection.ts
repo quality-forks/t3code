@@ -25,7 +25,11 @@ export const inspectDisk = Effect.fn("JjDiskInspection.inspectDisk")(function* (
   process: VcsProcess.VcsProcess["Service"],
   gitPaths: JjProcess.ColocatedGitInput,
   commitId: string,
-  options: { readonly submodules?: "refuse" | "allow-uninitialized" } = {},
+  options: {
+    readonly submodules?: "refuse" | "allow-uninitialized";
+    readonly trackedOnly?: boolean;
+    readonly includeIgnored?: boolean;
+  } = {},
 ) {
   return yield* Effect.scoped(
     Effect.gen(function* () {
@@ -97,26 +101,39 @@ export const inspectDisk = Effect.fn("JjDiskInspection.inspectDisk")(function* (
       );
       if (tracked.exitCode !== 0 || tracked.stderr.trim() !== "" || tracked.stderrTruncated)
         return "has unsnapshotted tracked changes or could not verify tracked files";
-      const listed = yield* cleanupGitCommand(
-        process,
-        operation,
-        gitPaths,
-        ["ls-files", "--others", "--exclude-standard", "--directory", "--no-empty-directory", "-z"],
-        { env, maxOutputBytes: 1024 * 1024 },
-      );
-      if (listed.stdoutTruncated || listed.stderrTruncated || listed.stderr.trim() !== "")
-        return "local files exceed the inspection limit";
-      const file = listed.stdout
-        .split("\0")
-        .find(
-          (entry) =>
-            entry !== "" &&
-            entry !== ".git" &&
-            entry !== ".jj" &&
-            !entry.startsWith(".jj/") &&
-            !entry.startsWith(".git/"),
+      if (options.trackedOnly) return null;
+      for (const ignored of options.includeIgnored ? [false, true] : [false]) {
+        const listed = yield* cleanupGitCommand(
+          process,
+          operation,
+          gitPaths,
+          [
+            "ls-files",
+            "--others",
+            "--exclude-standard",
+            "--directory",
+            "--no-empty-directory",
+            ...(ignored ? ["--ignored"] : []),
+            "-z",
+          ],
+          { env, maxOutputBytes: 1024 * 1024 },
         );
-      if (file !== undefined) return `has untracked files (${file})`;
+        if (listed.stdoutTruncated || listed.stderrTruncated || listed.stderr.trim() !== "")
+          return "local files exceed the inspection limit";
+        const file = listed.stdout
+          .split("\0")
+          .find(
+            (entry) =>
+              entry !== "" &&
+              entry !== ".git" &&
+              entry !== ".jj" &&
+              !entry.startsWith(".jj/") &&
+              !entry.startsWith(".git/") &&
+              !(ignored && /(^|\/)node_modules\/$/.test(entry)),
+          );
+        if (file !== undefined)
+          return ignored ? `has ignored files (${file})` : `has untracked files (${file})`;
+      }
       return null;
     }),
   );

@@ -715,7 +715,7 @@ export function WorktreeCleanupSection() {
               status={ruleStatus("worktreeOnDelete")}
               managedPaths={lockablePath("worktreeOnDelete")}
               description={gt(
-                "Remove unused worktrees when active or archived threads are deleted. Worktrees with local changes are kept.",
+                "Remove unused worktrees or T3-managed Jujutsu workspaces with deleted threads. Jujutsu keeps described changes, conflicts, and history without a surviving bookmark. Local-file rules apply below.",
               )}
               serverScoped={!isProjectScope}
               control={
@@ -731,7 +731,7 @@ export function WorktreeCleanupSection() {
               status={ruleStatus("worktreeOnMerge")}
               managedPaths={lockablePath("worktreeOnMerge")}
               description={gt(
-                "Remove worktrees whose pull request is merged and whose commits are included in the default branch.",
+                "Remove worktrees or T3-managed Jujutsu workspaces whose pull request is merged and whose commits are included in the remote default branch or bookmark.",
               )}
               serverScoped={!isProjectScope}
               control={
@@ -801,7 +801,9 @@ export function WorktreeCleanupSection() {
                 title={gt("Delete unchanged worktrees")}
                 status={ruleStatus("worktreeUnchanged")}
                 managedPaths={lockablePath("worktreeUnchanged")}
-                description={gt("Remove worktrees with no commits beyond the default branch.")}
+                description={gt(
+                  "Remove worktrees with no commits beyond the default branch. Jujutsu workspaces require a verified remote default bookmark and preserved ancestry. Stale workspaces are kept without automatic repair.",
+                )}
                 serverScoped={!isProjectScope}
                 control={
                   <Switch

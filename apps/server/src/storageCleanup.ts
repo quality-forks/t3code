@@ -42,6 +42,10 @@ import * as SubscriptionRef from "effect/SubscriptionRef";
 import { parse as parseYaml } from "yaml";
 
 import * as ServerConfig from "./config.ts";
+import { inspectJjStorageCleanup, removeJjStorageCleanup } from "./jj/JjStorageCleanup.ts";
+import * as JjVcsDriver from "./vcs/JjVcsDriver.ts";
+import * as VcsProcess from "./vcs/VcsProcess.ts";
+import * as VcsDriverRegistry from "./vcs/VcsDriverRegistry.ts";
 import * as GitManager from "./git/GitManager.ts";
 import * as GitWorkflowService from "./git/GitWorkflowService.ts";
 import * as ProjectStore from "./orchestration-v2/ProjectStore.ts";
@@ -319,6 +323,19 @@ export class StorageCleanup extends Context.Service<
 >()("t3/storageCleanup") {}
 
 const make = Effect.gen(function* () {
+  const registry = yield* VcsDriverRegistry.VcsDriverRegistry;
+  const jjDriver = yield* JjVcsDriver.JjVcsDriver;
+  const jjProcess = yield* VcsProcess.VcsProcess;
+  const inspectJj = (...args: Parameters<typeof inspectJjStorageCleanup>) =>
+    inspectJjStorageCleanup(...args).pipe(
+      Effect.provideService(JjVcsDriver.JjVcsDriver, jjDriver),
+      Effect.provideService(VcsProcess.VcsProcess, jjProcess),
+    );
+  const removeJj = (...args: Parameters<typeof removeJjStorageCleanup>) =>
+    removeJjStorageCleanup(...args).pipe(
+      Effect.provideService(JjVcsDriver.JjVcsDriver, jjDriver),
+      Effect.provideService(VcsProcess.VcsProcess, jjProcess),
+    );
   const config = yield* ServerConfig.ServerConfig;
   const settingsService = yield* Settings.ServerSettingsService;
   const projectStore = yield* ProjectStore.ProjectStoreV2;
@@ -616,13 +633,17 @@ const make = Effect.gen(function* () {
         if (modified !== null && modified.getTime() > now - ORPHAN_WORKTREE_GRACE_MS) return;
         const gitPath = path.join(worktreePath, ".git");
         const linked = (yield* fs.exists(gitPath)) && (yield* isLinkedWorktree(worktreePath));
+        const jjRepo = path.join(worktreePath, ".jj", "repo");
+        const jjWorkspace = (yield* fs.exists(jjRepo)) && (yield* fs.stat(jjRepo)).type === "File";
+        if ((yield* fs.exists(jjRepo)) && !jjWorkspace) return;
         reported.set(key, {
           path: worktreePath,
-          reason: linked
-            ? "No thread uses this worktree"
-            : scratch
-              ? "No thread uses this folder"
-              : "No thread uses this folder, and it isn't a git worktree",
+          reason:
+            linked || jjWorkspace
+              ? "No thread uses this worktree"
+              : scratch
+                ? "No thread uses this folder"
+                : "No thread uses this folder, and it isn't a git worktree",
         });
       },
       Effect.orElseSucceed(() => undefined),
@@ -653,6 +674,10 @@ const make = Effect.gen(function* () {
         yield* Effect.gen(function* () {
           if (referenced.has(pathKey(projectDirectory))) return;
           const gitPath = path.join(projectDirectory, ".git");
+          if (yield* fs.exists(path.join(projectDirectory, ".jj"))) {
+            yield* report(projectDirectory);
+            return;
+          }
           if (yield* fs.exists(gitPath)) {
             if (yield* isLinkedWorktree(projectDirectory)) yield* report(projectDirectory);
             return;
@@ -1153,8 +1178,6 @@ const make = Effect.gen(function* () {
     const worktreePathReason = Effect.fn("StorageCleanup.worktreePathReason")(function* (
       worktreePath: string,
     ) {
-      if (yield* fs.exists(path.join(worktreePath, ".jj")))
-        return "Jujutsu workspaces require explicit removal";
       // Allow symlinked parents, never a symlinked worktree directory.
       const realPath = yield* fs.realPath(worktreePath);
       const realParent = yield* fs.realPath(path.dirname(worktreePath));
@@ -1165,7 +1188,8 @@ const make = Effect.gen(function* () {
       const linked = yield* isLinkedWorktree(worktreePath).pipe(
         Effect.catchReason("PlatformError", "NotFound", () => Effect.succeed(false)),
       );
-      if (!linked) return "not a linked worktree";
+      if (!linked && !(yield* fs.exists(path.join(worktreePath, ".jj"))))
+        return "not a linked worktree";
       return null;
     });
     // The checks a single worktree passes before removal, for one checkout of a task folder.
@@ -1178,6 +1202,9 @@ const make = Effect.gen(function* () {
       ) {
         const reason =
           (yield* worktreePathReason(checkoutPath)) ??
+          ((yield* fs.exists(path.join(checkoutPath, ".jj")))
+            ? "Jujutsu workspaces require explicit removal"
+            : null) ??
           ((yield* branchChanged(checkoutPath, branch)) ? "repository or branch changed" : null) ??
           (yield* localChangesReason(checkoutPath, rules));
         if (reason !== null) return { keep: reason, force: false, bytes: null };
@@ -1220,6 +1247,7 @@ const make = Effect.gen(function* () {
     // Failures are cached too, so one broken repository costs one fetch per sweep.
     const refreshedDefaultRefs = new Map<string, Map<string, Exit.Exit<void, GitCommandError>>>();
     const defaultBranches = new Map<string, string | null>();
+    const refreshedJjDefaults = new Set<string>();
     // Threads may store one checkout through different symlinked spellings; compare real paths.
     // Keys are only compared, never opened, so they take pathKey's Windows case folding.
     const canonicalPaths = new Map<string, string>();
@@ -1604,13 +1632,72 @@ const make = Effect.gen(function* () {
         if (pathReason !== null) return keep(pathReason);
         if (yield* containsProjectRoot(worktreePaths, [project, ...snapshot.projects]))
           return keep("contains a project checkout");
-        if (yield* branchChanged(worktreePath, thread.branch)) {
-          // A deleted owner cannot follow, so its remaining subagents stay on its branch.
-          if (!deleted) yield* followBranch(worktreePath);
-          return keep("repository or branch changed");
+        if (thread.branch === null) return keep("workspace branch is missing");
+        const hasJjMarker = yield* fs.exists(path.join(worktreePath, ".jj"));
+        const jjIdentity = hasJjMarker ? yield* fs.stat(path.join(worktreePath, ".jj")) : null;
+        const gitIdentity = !hasJjMarker ? yield* fs.stat(path.join(worktreePath, ".git")) : null;
+        const detectedJj = hasJjMarker
+          ? yield* registry.detect({ cwd: worktreePath, jjOnly: true })
+          : null;
+        if (hasJjMarker && detectedJj?.kind !== "jj")
+          return keep("Jujutsu metadata is present but unavailable for cleanup");
+        let jjInspection =
+          detectedJj?.kind === "jj"
+            ? yield* inspectJj(
+                worktreePath,
+                thread.branch,
+                settings.worktreeKeepWhen,
+                false,
+                defaultBranches,
+                !eligible,
+              )
+            : null;
+        if (jjInspection !== null) {
+          if (jjInspection.reason !== null) return keep(jjInspection.reason);
+        } else {
+          if (yield* branchChanged(worktreePath, thread.branch)) {
+            if (!deleted) yield* followBranch(worktreePath);
+            return keep("repository or branch changed");
+          }
         }
-        const head = yield* git.resolveCommit({ cwd: worktreePath, revision: "HEAD" });
-        if (!eligible) {
+        const head =
+          jjInspection === null
+            ? yield* git.resolveCommit({ cwd: worktreePath, revision: "HEAD" })
+            : { commitSha: jjInspection.commitId };
+        if (!eligible && jjInspection !== null) {
+          const key = jjInspection.mainWorkspaceRoot;
+          if (jjInspection.defaultBranch === null) return keep("default branch is unavailable");
+          if (!refreshedJjDefaults.has(key)) {
+            const inspected = yield* inspectJj(
+              worktreePath,
+              thread.branch,
+              settings.worktreeKeepWhen,
+              true,
+              defaultBranches,
+            );
+            if (inspected.reason !== null) return keep(inspected.reason);
+            if (inspected.commitId !== head.commitSha) return keep("commit changed since check");
+            jjInspection = inspected;
+            refreshedJjDefaults.add(key);
+          }
+          if (jjInspection.defaultBranch === null) return keep("default branch is unavailable");
+          eligible = jjInspection.integrated && settings.worktreeUnchanged;
+          if (eligible) removalReason = "no commits beyond the default branch";
+          if (!eligible && settings.worktreeOnMerge) {
+            const pullRequest = yield* gitManager.branchPullRequest(
+              { cwd: jjInspection.mainWorkspaceRoot, branch: thread.branch },
+              { refresh: true },
+            );
+            eligible = storageCleanupPullRequestMerged(pullRequest, {
+              branch: thread.branch,
+              defaultBranch: jjInspection.defaultBranch,
+              headSha: head.commitSha,
+              integrated: jjInspection.integrated,
+            });
+            if (eligible) removalReason = "pull request was merged";
+          }
+        }
+        if (!eligible && jjInspection === null) {
           const repositoryCwd = path.resolve(project.workspaceRoot);
           const remotes = yield* git.execute({
             operation: "StorageCleanup.listRemotes",
@@ -1718,8 +1805,10 @@ const make = Effect.gen(function* () {
         }
         if (!eligible) return keep(notDueReason);
         // A full status walks the whole checkout, so only a removable worktree pays for it.
-        const changes = yield* localChangesReason(worktreePath, settings);
-        if (changes !== null) return keep(changes);
+        if (jjInspection === null) {
+          const changes = yield* localChangesReason(worktreePath, settings);
+          if (changes !== null) return keep(changes);
+        }
         const blocked = yield* blockedSinceCheck();
         if (blocked !== null) return keep(blocked);
         // Inspect before the lease; provider startup must not wait for directory traversal.
@@ -1733,35 +1822,77 @@ const make = Effect.gen(function* () {
             if (pathReason !== null) return keep(pathReason);
             const blockedWhileMeasuring = yield* blockedSinceCheck();
             if (blockedWhileMeasuring !== null) return keep(blockedWhileMeasuring);
-            if (yield* branchChanged(worktreePath, thread.branch))
-              return keep("repository or branch changed since check");
-            if (
-              (yield* git.resolveCommit({ cwd: worktreePath, revision: "HEAD" })).commitSha !==
-              head.commitSha
-            )
-              return keep("commit changed since check");
-            const finalChanges = yield* localChangesReason(worktreePath, settings);
-            if (finalChanges !== null) return keep(finalChanges);
-            if (yield* settingsChangedSinceCheck) return keep("settings changed since check");
-            const submodules = yield* submoduleRemoval(worktreePath, settings);
-            if (submodules.reason !== null) return keep(submodules.reason);
-            if (submodules.force) {
-              const changes = yield* localChangesReason(worktreePath, settings);
-              if (changes !== null) return keep(changes);
+            if (jjInspection === null) {
+              if (yield* branchChanged(worktreePath, thread.branch))
+                return keep("repository or branch changed since check");
+              if (
+                (yield* git.resolveCommit({ cwd: worktreePath, revision: "HEAD" })).commitSha !==
+                head.commitSha
+              )
+                return keep("commit changed since check");
+              const finalChanges = yield* localChangesReason(worktreePath, settings);
+              if (finalChanges !== null) return keep(finalChanges);
             }
-            const repository = yield* worktreeRepository(worktreePath);
-            // Forced removal already discards local files; do not widen its final-check window.
-            if (settings.worktreeKeepWhen === "tracked-changes" && !submodules.force)
-              yield* cleanupGit(worktreePath, ["clean", "-ffdx"], "git clean");
-            yield* removeLinkedWorktree({
-              operation: "StorageCleanup.cleanupGit",
-              cwd: repository,
-              worktreePath,
-              // Git requires force for submodules; recursive checks above cannot make removal atomic.
-              force: submodules.force,
-              execute: git.execute,
-              run: (args) => cleanupGit(repository, [...args], "git worktree remove"),
-            });
+            if (yield* settingsChangedSinceCheck) return keep("settings changed since check");
+            const blockedBeforeRemoval = yield* blockedSinceCheck();
+            if (blockedBeforeRemoval !== null) return keep(blockedBeforeRemoval);
+            if (jjInspection !== null) {
+              const identity = yield* fs.stat(path.join(worktreePath, ".jj"));
+              if (
+                jjIdentity === null ||
+                identity.dev !== jjIdentity.dev ||
+                !Equal.equals(identity.ino, jjIdentity.ino)
+              )
+                return keep("workspace metadata changed since check");
+              const reason = yield* removeJj(
+                worktreePath,
+                thread.branch!,
+                jjInspection.commitId,
+                settings.worktreeKeepWhen,
+              );
+              if (reason !== null) return keep(reason);
+            } else {
+              if (yield* branchChanged(worktreePath, thread.branch))
+                return keep("repository or branch changed since check");
+              const identity = yield* fs.stat(path.join(worktreePath, ".git"));
+              if (
+                gitIdentity === null ||
+                identity.dev !== gitIdentity.dev ||
+                !Equal.equals(identity.ino, gitIdentity.ino)
+              )
+                return keep("workspace metadata changed since check");
+              if (yield* fs.exists(path.join(worktreePath, ".jj")))
+                return keep("workspace metadata changed since check");
+              const submodules = yield* submoduleRemoval(worktreePath, settings);
+              if (submodules.reason !== null) return keep(submodules.reason);
+              if (submodules.force) {
+                const changes = yield* localChangesReason(worktreePath, settings);
+                if (changes !== null) return keep(changes);
+              }
+              if (yield* branchChanged(worktreePath, thread.branch))
+                return keep("repository or branch changed since check");
+              const finalIdentity = yield* fs.stat(path.join(worktreePath, ".git"));
+              if (
+                gitIdentity === null ||
+                finalIdentity.dev !== gitIdentity.dev ||
+                !Equal.equals(finalIdentity.ino, gitIdentity.ino)
+              )
+                return keep("workspace metadata changed since check");
+              if (yield* fs.exists(path.join(worktreePath, ".jj")))
+                return keep("workspace metadata changed since check");
+              const repository = yield* worktreeRepository(worktreePath);
+              if (settings.worktreeKeepWhen === "tracked-changes" && !submodules.force)
+                yield* cleanupGit(worktreePath, ["clean", "-ffdx"], "git clean");
+              yield* removeLinkedWorktree({
+                operation: "StorageCleanup.cleanupGit",
+                cwd: repository,
+                worktreePath,
+                // Git requires force for submodules; recursive checks above cannot make removal atomic.
+                force: submodules.force,
+                execute: git.execute,
+                run: (args) => cleanupGit(repository, [...args], "git worktree remove"),
+              });
+            }
             entries.push({ ...entry, outcome: "removed", reason: sentence(removalReason), bytes });
             yield* gitManager.invalidateStatus(project.workspaceRoot);
             // Preserve branch/path so ProviderTurnStartService can recreate the checkout on resume.
@@ -2163,4 +2294,8 @@ const make = Effect.gen(function* () {
   });
 });
 
-export const layer = Layer.effect(StorageCleanup, make);
+export const layer = Layer.effect(StorageCleanup, make).pipe(
+  Layer.provide(VcsDriverRegistry.layer),
+  Layer.provideMerge(JjVcsDriver.layer),
+  Layer.provide(VcsProcess.layer),
+);
