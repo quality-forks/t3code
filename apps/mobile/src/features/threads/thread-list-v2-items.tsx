@@ -1,3 +1,5 @@
+import { workspaceBaseLabel } from "@t3tools/client-runtime/worktree-setup";
+import { cachedRepositoryTerminology } from "../../state/vcs";
 import * as Dialog from "../../components/ui/Dialog";
 import type { ThreadRowProviderInstance } from "./thread-provider-instance";
 import {
@@ -64,6 +66,8 @@ import {
   resolvePendingDraftBranch,
 } from "../../state/pending-new-tasks-model";
 import { useBranches } from "../../state/queries";
+import { useEnvironmentQuery } from "../../state/query";
+import { vcsEnvironment } from "../../state/vcs";
 import { useNewTaskProjectDefaults } from "./use-new-task-project-defaults";
 import {
   resolveThreadPrBadgeAction,
@@ -509,6 +513,14 @@ export const ThreadListV2PendingRow = memo(function ThreadListV2PendingRow(props
     [deleteLabel, gt, handleDelete, isDraft, pendingTask.title],
   );
   const projectCwd = props.project?.workspaceRoot || null;
+  const baseStatus = useEnvironmentQuery(
+    projectCwd
+      ? vcsEnvironment.status({
+          environmentId: pendingTask.environmentId,
+          input: { cwd: projectCwd },
+        })
+      : null,
+  );
   // Drafts only; the reads are shared per-project atoms, and queued rows skip them.
   const projectDefaults = useNewTaskProjectDefaults(isDraft ? props.project : null);
   const draftDefaults = {
@@ -523,6 +535,8 @@ export const ThreadListV2PendingRow = memo(function ThreadListV2PendingRow(props
   });
   const branch = isDraft
     ? resolvePendingDraftBranch({
+        status: baseStatus.data,
+        startFromOrigin: projectDefaults.projectSettings.settings.newWorktreesStartFromOrigin,
         draft: pendingTask.draft,
         defaults: draftDefaults,
         isGitRepo: draftBranchRefs.data?.isRepo ?? true,
@@ -647,7 +661,13 @@ export const ThreadListV2PendingRow = memo(function ThreadListV2PendingRow(props
                 )}
                 style={{ fontFamily: MONO_FONT }}
               >
-                {branch}
+                {workspaceBaseLabel(
+                  branch,
+                  baseStatus.data?.vcs?.kind === "jj" ||
+                    cachedRepositoryTerminology(pendingTask.environmentId, projectCwd, m).kind ===
+                      "jj",
+                  m,
+                )}
               </Text>
             ) : null}
             {branch && props.environmentLabel ? "  ·  " : null}
@@ -1095,6 +1115,11 @@ export const ThreadListV2Row = memo(function ThreadListV2Row(props: {
       isRegeneratingTitle,
     ],
   );
+  const vcs = cachedRepositoryTerminology(
+    thread.environmentId,
+    thread.worktreePath ?? props.project?.workspaceRoot ?? null,
+    m,
+  );
   const menuActions = useMemo<MenuAction[]>(() => {
     const nested = Platform.OS === "ios";
     const localized = (action: MenuAction): MenuAction => ({ ...action, title: m(action.title) });
@@ -1103,7 +1128,7 @@ export const ThreadListV2Row = memo(function ThreadListV2Row(props: {
         ? [
             {
               id: "new-thread-on-branch",
-              title: getThreadListV2NewBranchMenuTitle(thread.branch, m),
+              title: getThreadListV2NewBranchMenuTitle(thread.branch, vcs, m),
               image: "square.and.pencil",
             },
           ]
@@ -1203,6 +1228,7 @@ export const ThreadListV2Row = memo(function ThreadListV2Row(props: {
     m,
     swipeActions.secondary,
     thread.branch,
+    vcs,
     titleMenuItems,
   ]);
   const handleMenuAction = useCallback(

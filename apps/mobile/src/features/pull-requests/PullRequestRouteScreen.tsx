@@ -1,3 +1,6 @@
+import { cachedRepositoryTerminology } from "../../state/vcs";
+import { appAtomRegistry } from "../../state/atom-registry";
+import { environmentProjects } from "../../state/projects";
 import {
   isFileDiffCollapsed,
   withFileDiffFold,
@@ -565,16 +568,30 @@ export function PullRequestRouteScreen({ route }: StaticScreenProps<PullRequestP
       : null;
   const runStateAction = () =>
     stateAction === "close" ? action.confirmClose() : void action.perform("reopen");
-  const confirmDeleteBranch = () =>
-    pr &&
+  const confirmDeleteBranch = () => {
+    if (!pr) return;
+    const target = requestTarget(params);
+    const project = appAtomRegistry.get(
+      environmentProjects.projectAtom({
+        environmentId: target.environmentId,
+        projectId: target.input.projectId,
+      }),
+    );
+    const vcs = cachedRepositoryTerminology(target.environmentId, project?.workspaceRoot ?? null);
     action.confirm(
       "delete-branch",
       pullRequestActionLabel("delete-branch", terminology, messages),
-      gt("Delete {branch} from {repository}? Local branches and worktrees are not changed.", {
-        branch: pr.headBranch,
-        repository: pr.headRepositoryNameWithOwner ?? pr.repository,
-      }),
+      vcs.kind === "git"
+        ? gt("Delete {branch} from {repository}? Local branches and worktrees are not changed.", {
+            branch: pr.headBranch,
+            repository: pr.headRepositoryNameWithOwner ?? pr.repository,
+          })
+        : gt("Delete {branch} from {repository}? Local refs and checkouts are not changed.", {
+            branch: pr.headBranch,
+            repository: pr.headRepositoryNameWithOwner ?? pr.repository,
+          }),
     );
+  };
   const stack = usePullRequestStack(params, pr);
   const refreshActivity = useAtomRefresh(composerPullRequests.activity(requestTarget(params)));
   const refreshGuide = useAtomRefresh(composerPullRequests.reviewGuide(requestTarget(params)));

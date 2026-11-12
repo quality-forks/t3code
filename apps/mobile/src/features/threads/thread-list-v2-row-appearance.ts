@@ -1,7 +1,8 @@
-import { msg } from "gt-react-native";
+import { m, type MessageResolver } from "../../i18n/messages";
+import { msg as vcsMsg } from "gt-react-native";
+import { DEFAULT_VCS_TERMINOLOGY } from "@t3tools/shared/vcs";
 import type { ViewStyle } from "react-native";
 
-import { m, type MessageResolver } from "../../i18n/messages";
 import type { MobileThemeVariables } from "../../lib/mobileTheme";
 
 export const THREAD_LIST_V2_MONO_FONT = "Menlo";
@@ -24,8 +25,16 @@ export const selectedThreadRowColors = {
   mutedIconTintClassName: "accent-thread-selected-foreground-muted",
 };
 
-export function getThreadListV2NewBranchMenuTitle(_branch: string, resolve: MessageResolver = m) {
-  return resolve(msg("New thread on branch"));
+export function getThreadListV2NewBranchMenuTitle(
+  _branch: string,
+  vcs = DEFAULT_VCS_TERMINOLOGY,
+  vcsMessage: MessageResolver = m,
+) {
+  return vcsMessage(
+    vcs.kind === "git"
+      ? vcsMsg("New thread on branch")
+      : vcsMsg("New thread on {value0}", { value0: vcs.refNoun }),
+  );
 }
 
 export function getThreadListV2RowAppearance(

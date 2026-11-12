@@ -62,6 +62,8 @@ const state = vi.hoisted(() => ({
     environment: { capabilities: {} },
   },
 }));
+vi.mock("./vcs", () => ({ cachedRepositoryTerminology: () => ({ kind: "git" }) }));
+
 vi.mock("react-native", () => ({ Alert: { alert: vi.fn() } }));
 vi.mock("./session", async () => {
   const { Atom } = await import("effect/reactivity");

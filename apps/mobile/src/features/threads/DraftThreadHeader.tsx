@@ -1,3 +1,6 @@
+import { useMessages as useVcsMessages } from "gt-react-native";
+import { localizedVcsTerminology } from "@t3tools/client-runtime/state/vcs";
+import { msg as vcsMsg } from "gt-react-native";
 import { uuidv4 } from "../../lib/uuid";
 import * as Dialog from "../../components/ui/Dialog";
 import { useNavigation } from "@react-navigation/native";
@@ -16,12 +19,16 @@ import { useAtomCommand } from "../../state/use-atom-command";
 import { vcsActionManager, vcsEnvironment } from "../../state/vcs";
 import { useVcsActionState } from "../../state/use-vcs-action-state";
 import { ThreadHeader } from "./ThreadHeader";
+import { supportsVcsActions } from "@t3tools/shared/vcs";
+import { vcsOperationErrorMessage } from "@t3tools/client-runtime/errors";
+import { workspaceBaseLabel } from "@t3tools/client-runtime/worktree-setup";
 
 export function DraftThreadHeader(props: {
   readonly thread: EnvironmentThreadShell;
   readonly project: EnvironmentProject;
   readonly cwd: string | null;
 }) {
+  const vcsMessage = useVcsMessages();
   const gt = useGT();
   const messages = useMessages();
   const navigation = useNavigation();
@@ -60,7 +67,10 @@ export function DraftThreadHeader(props: {
         threadId: props.thread.id,
         hasThread: false,
         tracksRepositories: (props.project.trackedFolders?.length ?? 0) > 0,
-        currentBranch: props.thread.branch,
+        currentBranch:
+          props.thread.branch === null
+            ? null
+            : workspaceBaseLabel(props.thread.branch, status.data?.vcs?.kind === "jj", messages),
         gitStatus: status.data,
         gitOperationLabel: vcsActionLabelText(progress, messages),
         canOpenTerminal: false,
@@ -76,20 +86,36 @@ export function DraftThreadHeader(props: {
           requiresThread();
         },
         onPull: async () => {
-          if (!canWriteGit || !props.cwd) return;
+          if (!canWriteGit || !props.cwd || !supportsVcsActions(status.data)) return;
           const result = await pull({ environmentId, input: { cwd: props.cwd } });
           if (AsyncResult.isFailure(result))
-            Dialog.alert(gt("Could not pull"), String(Cause.squash(result.cause)));
+            Dialog.alert(
+              gt("Could not pull"),
+              vcsOperationErrorMessage(Cause.squash(result.cause), gt("Could not pull."), messages),
+            );
         },
         onRunAction: async (input) => {
-          if (!canWriteGit || !props.cwd) return null;
+          if (!canWriteGit || !props.cwd || !supportsVcsActions(status.data)) return null;
           const result = await runAction({
             ...input,
             projectId: props.project.id,
             actionId: uuidv4(),
           });
           if (AsyncResult.isFailure(result)) {
-            Dialog.alert(gt("Git action failed"), String(Cause.squash(result.cause)));
+            Dialog.alert(
+              localizedVcsTerminology(status.data, messages).kind === "git"
+                ? gt("Git action failed")
+                : vcsMessage(
+                    vcsMsg("{value0} action failed", {
+                      value0: localizedVcsTerminology(status.data, messages).systemName,
+                    }),
+                  ),
+              vcsOperationErrorMessage(
+                Cause.squash(result.cause),
+                gt("Source control action failed."),
+                messages,
+              ),
+            );
             return null;
           }
           return result.value;

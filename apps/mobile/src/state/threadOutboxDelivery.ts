@@ -1,3 +1,5 @@
+import { cachedRepositoryTerminology } from "./vcs";
+import { vcsOperationErrorMessage } from "@t3tools/client-runtime/errors";
 import { sourceControlClients } from "@t3tools/client-runtime/source-control-clients";
 import { changeRequestTermKind } from "../lib/changeRequestTerm";
 import { errorDisplayMessage } from "@t3tools/client-runtime/errors";
@@ -544,7 +546,10 @@ export const restoreRejectedQueuedMessage = Effect.fn("ThreadOutbox.restoreRejec
           ? {
               workspaceSelection: {
                 mode: queuedMessage.creation.workspaceMode,
-                branch: queuedMessage.creation.branch,
+                branch:
+                  queuedMessage.creation.worktreeBaseSelected === false
+                    ? null
+                    : queuedMessage.creation.branch,
                 worktreePath: queuedMessage.creation.worktreePath,
                 pullRequestReference: queuedMessage.creation.pullRequestReference,
                 ...(queuedMessage.creation.startFromOrigin !== undefined
@@ -750,7 +755,7 @@ function reportCommandFailure(
   });
   return {
     action,
-    message: errorDisplayMessage(error, m) ?? m(msg("The message could not be sent.")),
+    message: vcsOperationErrorMessage(error, m(msg("The message could not be sent.")), m),
   };
 }
 
@@ -1165,10 +1170,15 @@ export function createThreadOutboxDelivery(): {
         return yield* restoreQueuedMessage(
           persistedMessage,
           m(
-            msg(
-              "{term, select, mr {The MR worktree has local changes and could not update to the MR head. Resolve them before trying again.} cr {The change request worktree has local changes and could not update to the change request head. Resolve them before trying again.} other {The PR worktree has local changes and could not update to the PR head. Resolve them before trying again.}}",
-              { term },
-            ),
+            cachedRepositoryTerminology(queuedMessage.environmentId, projectCwd).kind === "git"
+              ? msg(
+                  "{term, select, mr {The MR worktree has local changes and could not update to the MR head. Resolve them before trying again.} cr {The change request worktree has local changes and could not update to the change request head. Resolve them before trying again.} other {The PR worktree has local changes and could not update to the PR head. Resolve them before trying again.}}",
+                  { term },
+                )
+              : msg(
+                  "{term, select, mr {The MR checkout has local changes and could not update to the MR head. Resolve them before trying again.} cr {The change request checkout has local changes and could not update to the change request head. Resolve them before trying again.} other {The PR checkout has local changes and could not update to the PR head. Resolve them before trying again.}}",
+                  { term },
+                ),
           ),
         );
       }

@@ -1,3 +1,4 @@
+import { localizedVcsTerminology } from "@t3tools/client-runtime/state/vcs";
 import { ActiveNewTaskContext } from "../../state/active-new-task";
 import { errorDisplayMessage } from "@t3tools/client-runtime/errors";
 import { msg, useMessages } from "gt-react-native";
@@ -5,7 +6,7 @@ import { resolveNewThreadModelSelection } from "@t3tools/shared/usageLimits";
 import { useNowMinuteMs } from "../../lib/clock";
 import { m, type MessageResolver } from "../../i18n/messages";
 import * as Dialog from "../../components/ui/Dialog";
-import React, { useRef, useState } from "react";
+import React, { useMemo, useRef, useState } from "react";
 
 import type {
   EnvironmentId,
@@ -116,10 +117,17 @@ import {
 } from "@t3tools/client-runtime/state/thread-repositories";
 import { useConnectionsReady, useWorkspaceEnvironments } from "../../state/workspace";
 
+import {
+  resolveVcsUnsupportedReason,
+  supportsVcsActions,
+  type VcsTerminology,
+} from "@t3tools/shared/vcs";
+
 type WorkspaceMode = "local" | "worktree";
 
 export function branchBadgeLabel(
   input: {
+    readonly terminology?: VcsTerminology;
     readonly branch: VcsRef;
     readonly project: EnvironmentProject | null;
   },
@@ -129,7 +137,9 @@ export function branchBadgeLabel(
     return resolve(msg("current", { $context: "branch badge, the checked-out branch" }));
   }
   if (input.branch.worktreePath && input.branch.worktreePath !== input.project?.workspaceRoot) {
-    return resolve(msg("worktree", { $context: "branch badge, checked out in another worktree" }));
+    return (input.terminology ?? localizedVcsTerminology(null, resolve)).kind === "git"
+      ? resolve(msg("worktree", { $context: "branch badge, checked out in another worktree" }))
+      : (input.terminology ?? localizedVcsTerminology(null, resolve)).workspaceNoun;
   }
   if (input.branch.isRemote) {
     return resolve(msg("remote", { $context: "branch badge, a remote-tracking branch" }));
@@ -160,6 +170,10 @@ type NewTaskFlowContextValue = {
   readonly selectedWorktreePath: string | null;
   /** Where the draft's agent will run: the selected worktree, else the project root. */
   readonly workspaceCwd: string | null;
+  readonly vcs: VcsTerminology;
+  readonly vcsActionsSupported: boolean;
+  readonly vcsUnsupportedReason: string | null;
+  readonly committedBase?: import("@t3tools/contracts").VcsCommittedBase | undefined;
   readonly resolveWorkspaceSelection: (
     selection: ComposerDraftWorkspaceSelection | undefined,
   ) => ComposerDraftWorkspaceSelection;
@@ -414,6 +428,8 @@ export function NewTaskFlowProvider(
 
   const resolveWorkspaceSelection = (selection: ComposerDraftWorkspaceSelection | undefined) =>
     resolveNewTaskDraftWorkspace({
+      status: projectGitStatus.data,
+      startFromOrigin: projectSettings.settings.newWorktreesStartFromOrigin,
       selection,
       canChooseWorkspace,
       defaultMode: defaultWorkspaceMode,
@@ -432,6 +448,24 @@ export function NewTaskFlowProvider(
     (workspaceMode === "worktree"
       ? selectedProject?.workspaceRoot
       : (selectedWorktreePath ?? selectedProject?.workspaceRoot)) || null;
+  const workspaceStatus = useEnvironmentQuery(
+    props.active !== false &&
+      selectedProject &&
+      workspaceCwd &&
+      workspaceCwd !== selectedProject.workspaceRoot
+      ? vcsEnvironment.status({
+          environmentId: selectedProject.environmentId,
+          input: { cwd: workspaceCwd },
+        })
+      : null,
+  );
+  const repositoryStatus =
+    workspaceCwd === selectedProject?.workspaceRoot ? projectGitStatus.data : workspaceStatus.data;
+  const repositoryVcs = {
+    terminology: localizedVcsTerminology(repositoryStatus, messages),
+    unsupportedReason: resolveVcsUnsupportedReason(repositoryStatus),
+    actionsSupported: supportsVcsActions(repositoryStatus),
+  };
   const selectedEnvironmentServerConfig = serverConfigForCwd(
     projectDefaults.serverConfig,
     workspaceCwd,
@@ -472,11 +506,21 @@ export function NewTaskFlowProvider(
     storedStickyModelSelection,
     selectedProject?.id ?? null,
   );
-  const modelOptions = buildModelOptions(
-    selectedEnvironmentServerConfig,
-    draftModelSelection ?? projectDefaultModelSelection ?? stickyModelSelection,
-    undefined,
-    selectedProject?.id ?? null,
+  const modelOptions = useMemo(
+    () =>
+      buildModelOptions(
+        selectedEnvironmentServerConfig,
+        draftModelSelection ?? projectDefaultModelSelection ?? stickyModelSelection,
+        undefined,
+        selectedProject?.id ?? null,
+      ),
+    [
+      selectedEnvironmentServerConfig,
+      draftModelSelection,
+      projectDefaultModelSelection,
+      stickyModelSelection,
+      selectedProject?.id,
+    ],
   );
 
   const selectedDefaultModel = resolveNewTaskModelSelection({
@@ -679,6 +723,7 @@ export function NewTaskFlowProvider(
   };
 
   const setWorkspaceMode = (mode: WorkspaceMode) => {
+    if (mode === "worktree" && !repositoryVcs.actionsSupported) return;
     if (!selectedProjectDraftKey) {
       return;
     }
@@ -692,7 +737,14 @@ export function NewTaskFlowProvider(
     updateComposerDraftSettings(selectedProjectDraftKey, {
       workspaceSelection: {
         mode,
-        branch: mode === "local" ? localSelection.branch : selectedBranchName,
+        branch:
+          mode === "local"
+            ? localSelection.branch
+            : repositoryStatus?.vcs?.kind === "jj"
+              ? selectedProjectDraft.workspaceSelection?.mode === "worktree"
+                ? selectedProjectDraft.workspaceSelection.branch
+                : null
+              : selectedBranchName,
         worktreePath: mode === "local" ? localSelection.worktreePath : selectedWorktreePath,
         ...(draftStartFromOrigin !== undefined ? { startFromOrigin: draftStartFromOrigin } : {}),
         ...(draftRepositories !== undefined ? { repositories: draftRepositories } : {}),
@@ -730,7 +782,10 @@ export function NewTaskFlowProvider(
     updateComposerDraftSettings(selectedProjectDraftKey, {
       workspaceSelection: {
         mode: workspaceMode,
-        branch: selectedBranchName,
+        branch:
+          workspaceMode === "worktree" && repositoryStatus?.vcs?.kind === "jj"
+            ? (selectedProjectDraft.workspaceSelection?.branch ?? null)
+            : selectedBranchName,
         worktreePath: selectedWorktreePath,
         startFromOrigin: value,
         ...(draftRepositories !== undefined ? { repositories: draftRepositories } : {}),
@@ -787,6 +842,7 @@ export function NewTaskFlowProvider(
     metadata: TurnCommandMetadata,
     options?: { readonly currentCheckoutBranch?: string | null },
   ): QueuedThreadMessage | null => {
+    if (workspaceMode === "worktree" && !repositoryVcs.actionsSupported) return null;
     if (!selectedProject || !selectedProjectDraftKey) {
       return null;
     }
@@ -842,6 +898,13 @@ export function NewTaskFlowProvider(
           selectedBranch: workspaceSelection?.branch ?? null,
           currentCheckoutBranch: options?.currentCheckoutBranch ?? null,
         }),
+        ...(mode === "worktree" && repositoryStatus?.vcs?.kind === "jj"
+          ? {
+              worktreeBaseSelected:
+                draft.workspaceSelection?.branch != null ||
+                draft.workspaceSelection?.pullRequestReference != null,
+            }
+          : {}),
         worktreePath: mode === "worktree" ? null : (workspaceSelection?.worktreePath ?? null),
         ...((workspaceSelection?.startFromOrigin ?? startFromOrigin)
           ? { startFromOrigin: true }
@@ -930,6 +993,10 @@ export function NewTaskFlowProvider(
     selectedBranchName,
     selectedWorktreePath,
     workspaceCwd,
+    vcs: repositoryVcs.terminology,
+    vcsActionsSupported: repositoryVcs.actionsSupported,
+    vcsUnsupportedReason: repositoryVcs.unsupportedReason,
+    committedBase: projectGitStatus.data?.committedBase,
     resolveWorkspaceSelection,
     startFromOrigin,
     draftKey: selectedProjectDraftKey,

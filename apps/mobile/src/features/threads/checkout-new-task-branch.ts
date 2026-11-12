@@ -23,6 +23,7 @@ export async function checkoutNewTaskBranch<E>(input: {
   readonly branch: VcsRef;
   readonly project: Pick<EnvironmentProject, "environmentId" | "workspaceRoot"> | null;
   readonly workspaceMode: "local" | "worktree";
+  readonly isJj?: boolean;
   readonly readRefs: (request: {
     readonly environmentId: EnvironmentProject["environmentId"];
     readonly input: VcsListRefsInput;
@@ -69,9 +70,13 @@ export async function checkoutNewTaskBranch<E>(input: {
           Cause.fail(
             new Error(
               m(
-                msg(
-                  "The server did not report whether this project is at the repository root, so this worktree cannot be reused safely. Update the server or choose another branch.",
-                ),
+                !input.isJj
+                  ? msg(
+                      "The server did not report whether this project is at the repository root, so this worktree cannot be reused safely. Update the server or choose another branch.",
+                    )
+                  : msg(
+                      "The server did not report whether this project is at the repository root, so this checkout cannot be reused safely. Update the server or choose another ref.",
+                    ),
               ),
             ),
           ),
@@ -82,9 +87,13 @@ export async function checkoutNewTaskBranch<E>(input: {
           Cause.fail(
             new Error(
               m(
-                msg(
-                  "This project is a repository subdirectory. Choose another branch or add the repository root as a project to reuse this worktree.",
-                ),
+                !input.isJj
+                  ? msg(
+                      "This project is a repository subdirectory. Choose another branch or add the repository root as a project to reuse this worktree.",
+                    )
+                  : msg(
+                      "This project is a repository subdirectory. Choose another ref or add the repository root as a project to reuse this checkout.",
+                    ),
               ),
             ),
           ),

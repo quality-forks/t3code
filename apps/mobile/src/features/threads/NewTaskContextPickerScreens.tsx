@@ -1,5 +1,7 @@
+import { useMessages as useVcsMessages } from "gt-react-native";
+import { msg as vcsMsg } from "gt-react-native";
+import { workspaceBaseLabel } from "@t3tools/client-runtime/worktree-setup";
 import { NativeScrollView } from "../../native/NativeScrollViewMarker";
-import { errorDisplayMessage } from "@t3tools/client-runtime/errors";
 import { Button } from "../../components/ui/Button";
 import * as Dialog from "../../components/ui/Dialog";
 import { AppActivityIndicator } from "../../components/ui/AppActivityIndicator";
@@ -20,9 +22,9 @@ import {
 import * as Haptics from "expo-haptics";
 import { useNavigation } from "@react-navigation/native";
 import { T, useGT, useMessages, Var } from "gt-react-native";
-import { m } from "../../i18n/messages";
 import { useRef, useState, type ReactNode } from "react";
 import { sanitizeNewRefName } from "@t3tools/shared/git";
+import type { VcsTerminology } from "@t3tools/shared/vcs";
 import { Platform, Pressable, ScrollView, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
@@ -39,6 +41,7 @@ import { vcsEnvironment } from "../../state/vcs";
 import { useRefreshBranchesOnFocus } from "./use-refresh-branches-on-focus";
 import { useSearchToolbarInset } from "../../components/ui/useBarInset";
 import type { AppBarSearch } from "../../components/ui/AppBar";
+import { vcsOperationErrorMessage } from "@t3tools/client-runtime/errors";
 import { branchBadgeLabel, useNewTaskFlow } from "./new-task-flow-provider";
 import { checkoutNewTaskBranch } from "./checkout-new-task-branch";
 import { filterNewTaskBranches } from "./new-task-context-presentation";
@@ -232,6 +235,7 @@ export function NewTaskEnvironmentPickerRouteScreen() {
 
 export function NewTaskBranchPickerRouteScreen() {
   const gt = useGT();
+  const vcsMessage = useVcsMessages();
   const flow = useNewTaskFlow();
   const canWriteSourceControl = useEnvironmentScope(
     flow.selectedProject?.environmentId ?? null,
@@ -260,6 +264,7 @@ export function NewTaskBranchPickerRouteScreen() {
   };
 
   const selectBranch = async (branch: VcsRef) => {
+    if (!flow.vcsActionsSupported) return;
     const needsCheckout = shouldCheckoutNewTaskBranch({
       branchIsCurrent: branch.current,
       branchWorktreePath: branch.worktreePath,
@@ -288,6 +293,7 @@ export function NewTaskBranchPickerRouteScreen() {
       workspaceMode: flow.workspaceMode,
       readRefs,
       switchRef,
+      isJj: flow.vcs.kind === "jj",
     }).finally(releaseRemovalGuard);
     setSwitchingBranchName(null);
     if (result._tag === "Failure") {
@@ -295,8 +301,18 @@ export function NewTaskBranchPickerRouteScreen() {
       if (navigation.isFocused() && !isAtomCommandInterrupted(result)) {
         const error = squashAtomCommandFailure(result);
         Dialog.alert(
-          gt("Could not switch branch"),
-          errorDisplayMessage(error, m) ?? gt("The branch could not be checked out."),
+          flow.vcs.kind === "git"
+            ? gt("Could not switch branch")
+            : vcsMessage(vcsMsg("Could not switch {value0}", { value0: flow.vcs.refNoun })),
+          vcsOperationErrorMessage(
+            error,
+            flow.vcs.kind === "git"
+              ? gt("The branch could not be checked out.")
+              : vcsMessage(
+                  vcsMsg("The {value0} could not be checked out.", { value0: flow.vcs.refNoun }),
+                ),
+            vcsMessage,
+          ),
         );
       }
       return;
@@ -314,9 +330,33 @@ export function NewTaskBranchPickerRouteScreen() {
 
   return (
     <BranchPickerScreen
-      title={flow.workspaceMode === "worktree" ? gt("Base branch") : gt("Branch")}
+      terminology={flow.vcs}
+      title={
+        flow.workspaceMode === "worktree"
+          ? flow.vcs.kind === "git"
+            ? gt("Base branch")
+            : vcsMessage(vcsMsg("Base {value0}", { value0: flow.vcs.refNoun }))
+          : flow.vcs.refNounTitle
+      }
       project={flow.selectedProject}
-      branches={filterNewTaskBranches(branchState.refs, branchQuery)}
+      committedBase={flow.workspaceMode === "worktree" ? flow.committedBase : undefined}
+      branches={[
+        ...(flow.workspaceMode === "worktree" &&
+        flow.committedBase &&
+        `current change ${flow.committedBase.changeId} ${flow.committedBase.description}`
+          .toLowerCase()
+          .includes(branchQuery.trim().toLowerCase())
+          ? [
+              {
+                name: flow.committedBase.changeId,
+                current: false,
+                isDefault: false,
+                worktreePath: null,
+              },
+            ]
+          : []),
+        ...filterNewTaskBranches(branchState.refs, branchQuery),
+      ]}
       selectedBranchName={
         flow.selectedBranchName ??
         flow.availableBranches.find((branch) => branch.current)?.name ??
@@ -326,12 +366,12 @@ export function NewTaskBranchPickerRouteScreen() {
       query={branchQuery}
       onQueryChange={setBranchQuery}
       loading={branchesLoading}
-      error={branchState.error}
+      error={flow.vcsUnsupportedReason ?? branchState.error}
       refreshing={branchState.isFetchingNextPage}
       hasMore={branchState.data?.nextCursor !== null && branchState.data?.nextCursor !== undefined}
       onRefresh={refreshBranches}
       onLoadMore={branchState.loadNext}
-      selectionDisabled={switchingBranchName !== null}
+      selectionDisabled={switchingBranchName !== null || !flow.vcsActionsSupported}
       onSelect={selectBranch}
       worktree={
         flow.workspaceMode === "worktree"
@@ -444,6 +484,8 @@ export function NewTaskRepositoriesPickerRouteScreen() {
 }
 
 export function BranchPickerScreen(props: {
+  readonly committedBase?: import("@t3tools/contracts").VcsCommittedBase | undefined;
+  readonly terminology: VcsTerminology;
   readonly title: string;
   readonly project: EnvironmentProject | null;
   readonly branches: readonly VcsRef[];
@@ -463,16 +505,24 @@ export function BranchPickerScreen(props: {
     readonly onChangeStartFromOrigin: (value: boolean) => void;
   };
 }) {
+  const vcsMessage = useVcsMessages();
   const gt = useGT();
   const m = useMessages();
   const navigation = useNavigation();
   const insets = useSafeAreaInsets();
   useRefreshBranchesOnFocus(props.project?.environmentId, props.project?.workspaceRoot);
+  const vcs = props.terminology;
   const search: AppBarSearch = {
     value: props.query,
     onChangeText: props.onQueryChange,
-    placeholder: gt("Find a branch"),
-    clearAccessibilityLabel: gt("Clear branch search"),
+    placeholder:
+      vcs.kind === "git"
+        ? gt("Find a branch")
+        : vcsMessage(vcsMsg("Find a {value0}", { value0: vcs.refNoun })),
+    clearAccessibilityLabel:
+      vcs.kind === "git"
+        ? gt("Clear branch search")
+        : vcsMessage(vcsMsg("Clear {value0} search", { value0: vcs.refNoun })),
     mode: "inline",
     compactToolbar: true,
   };
@@ -500,8 +550,23 @@ export function BranchPickerScreen(props: {
       isLast={index === props.branches.length - 1}
       onPress={() => props.onSelect(item)}
       selected={selectedBranchName === item.name}
-      subtitle={branchBadgeLabel({ branch: item, project: props.project }, m)?.toUpperCase()}
-      title={item.name}
+      subtitle={
+        item.name === props.committedBase?.changeId
+          ? props.committedBase.description
+          : branchBadgeLabel(
+              {
+                branch: item,
+                project: props.project,
+                terminology: vcs,
+              },
+              m,
+            )?.toUpperCase()
+      }
+      title={
+        props.committedBase && item.name === props.committedBase.changeId
+          ? workspaceBaseLabel(item.name, true, m)
+          : item.name
+      }
     />
   );
 
@@ -539,12 +604,18 @@ export function BranchPickerScreen(props: {
           {props.loading ? <AppActivityIndicator /> : null}
           <Text className="text-center text-sm text-foreground-muted">
             {props.loading
-              ? gt("Loading branches…")
+              ? vcs.kind === "git"
+                ? gt("Loading branches…")
+                : vcsMessage(vcsMsg("Loading {value0}…", { value0: vcs.refNounPlural }))
               : props.error
                 ? props.error
                 : props.query
-                  ? gt("No matching branches")
-                  : gt("No branches available")}
+                  ? vcs.kind === "git"
+                    ? gt("No matching branches")
+                    : vcsMessage(vcsMsg("No matching {value0}", { value0: vcs.refNounPlural }))
+                  : vcs.kind === "git"
+                    ? gt("No branches available")
+                    : vcsMessage(vcsMsg("No {value0} available", { value0: vcs.refNounPlural }))}
           </Text>
           {!props.loading && props.error ? (
             <View className="self-center">

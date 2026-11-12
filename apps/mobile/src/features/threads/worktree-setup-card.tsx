@@ -1,3 +1,5 @@
+import { useMessages as useVcsMessages } from "gt-react-native";
+import { msg as vcsMsg } from "gt-react-native";
 import { msg, T, useGT, useMessages } from "gt-react-native";
 
 import type { MessageResolver } from "../../i18n/messages";
@@ -18,6 +20,8 @@ import { SymbolView, type AppSymbolName } from "../../components/ui/AppSymbol";
 import { Sheet } from "../../components/ui/Sheet";
 import { ShimmeringWorkContent } from "./thread-work-log";
 import { useVisibleSecondClock } from "./use-visible-second-clock";
+
+import { useSelectedThreadVcs } from "../../state/use-selected-thread-vcs";
 
 export interface WorktreeSetupCardProps {
   snapshot: WorktreeSetupSnapshot;
@@ -73,25 +77,42 @@ export function WorktreeSetupCard(props: WorktreeSetupCardProps & SetupDetailsCo
 }
 
 function WorktreeSetupHeaderCard(props: WorktreeSetupCardProps & SetupDetailsControl) {
+  const vcsMessage = useVcsMessages();
   const { snapshot, detailsOpen } = props;
   const gt = useGT();
   const messages = useMessages();
+  const { terminology: vcs } = useSelectedThreadVcs();
   const running = snapshot.phase === "running";
   const now = useVisibleSecondClock(running);
   const failed =
     snapshot.phase === "failed" || snapshot.stages.some((stage) => stage.status === "failed");
   const label = running
-    ? gt("Setting up worktree…")
+    ? vcs.kind === "git"
+      ? gt("Setting up worktree…")
+      : vcsMessage(vcsMsg("Setting up {value0}…", { value0: vcs.workspaceNoun }))
     : snapshot.phase === "cancelled"
-      ? gt("Worktree setup cancelled")
+      ? vcs.kind === "git"
+        ? gt("Worktree setup cancelled")
+        : vcsMessage(vcsMsg("{value0} setup cancelled", { value0: vcs.workspaceNounTitle }))
       : snapshot.phase === "failed"
-        ? gt("Worktree setup failed")
+        ? vcs.kind === "git"
+          ? gt("Worktree setup failed")
+          : vcsMessage(vcsMsg("{value0} setup failed", { value0: vcs.workspaceNounTitle }))
         : failed
           ? gt("Setup script failed")
-          : gt("Worktree ready");
+          : vcs.kind === "git"
+            ? gt("Worktree ready")
+            : vcsMessage(vcsMsg("{value0} ready", { value0: vcs.workspaceNounTitle }));
 
   return (
-    <View accessibilityLabel={gt("Worktree setup")} className="py-1">
+    <View
+      accessibilityLabel={
+        vcs.kind === "git"
+          ? gt("Worktree setup")
+          : vcsMessage(vcsMsg("{value0} setup", { value0: vcs.workspaceNounTitle }))
+      }
+      className="py-1"
+    >
       <View className="min-h-11 flex-row items-center gap-2 border-b border-border px-1">
         <HeaderLabel label={label} active={running && !detailsOpen} failed={failed} />
         <Text
@@ -249,10 +270,19 @@ const PREPARING_STAGES: ReadonlyArray<WorktreeSetupStage> = WORKTREE_SETUP_STAGE
 
 export function WorktreePreparingHeader() {
   const gt = useGT();
+  const vcsMessage = useVcsMessages();
+  const { terminology: vcs } = useSelectedThreadVcs();
   return (
     <View className="py-1">
       <View className="min-h-11 flex-row items-center border-b border-border px-1">
-        <HeaderLabel label={gt("Setting up worktree…")} active />
+        <HeaderLabel
+          label={
+            vcs.kind === "git"
+              ? gt("Setting up worktree…")
+              : vcsMessage(vcsMsg("Setting up {value0}…", { value0: vcs.workspaceNoun }))
+          }
+          active
+        />
       </View>
       <View className="pt-1 pb-2">
         {PREPARING_STAGES.map((stage) => (
@@ -302,11 +332,20 @@ function SetupDetailsSheet({
   onClose,
   now,
 }: WorktreeSetupCardProps & { onClose: () => void; now: number }) {
+  const vcsMessage = useVcsMessages();
   const gt = useGT();
   const insets = useSafeAreaInsets();
+  const { terminology: vcs } = useSelectedThreadVcs();
   const canCancel = snapshot.phase === "running" && !turnStarted;
   return (
-    <Sheet title={gt("Worktree setup")} onClose={onClose}>
+    <Sheet
+      title={
+        vcs.kind === "git"
+          ? gt("Worktree setup")
+          : vcsMessage(vcsMsg("{value0} setup", { value0: vcs.workspaceNounTitle }))
+      }
+      onClose={onClose}
+    >
       <ScrollView
         contentInsetAdjustmentBehavior="automatic"
         bounces={false}
@@ -337,7 +376,11 @@ function SetupDetailsSheet({
             <Button
               label={gt("Cancel setup")}
               tone="danger"
-              accessibilityLabel={gt("Cancel worktree setup")}
+              accessibilityLabel={
+                vcs.kind === "git"
+                  ? gt("Cancel worktree setup")
+                  : vcsMessage(vcsMsg("Cancel {value0} setup", { value0: vcs.workspaceNoun }))
+              }
               onPress={() => {
                 onClose();
                 onCancel();
@@ -375,10 +418,17 @@ function StageRow({
 }) {
   const gt = useGT();
   const m = useMessages();
+  const { terminology: vcs } = useSelectedThreadVcs();
   const label =
     stage.id === "setup-script"
       ? (scriptName ?? m(stageLabels[stage.id]))
-      : m(stageLabels[stage.id]);
+      : stage.id === "fetch"
+        ? m(
+            vcs.kind === "git"
+              ? vcsMsg("Fetch base branch")
+              : vcsMsg("Fetch base {ref}", { ref: vcs.refNoun }),
+          )
+        : m(stageLabels[stage.id]);
   const detail =
     stage.status === "pending"
       ? null

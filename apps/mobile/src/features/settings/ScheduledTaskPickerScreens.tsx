@@ -1,3 +1,5 @@
+import { useMessages as useVcsMessages } from "gt-react-native";
+import { msg as vcsMsg } from "gt-react-native";
 import { msg, T, useGT, useMessages } from "gt-react-native";
 import { NativeScrollView } from "../../native/NativeScrollViewMarker";
 import { LegendList } from "@legendapp/list/react-native";
@@ -29,6 +31,7 @@ import {
   useScheduledTaskEditor,
 } from "./scheduled-task-editor";
 import { moveDraftToThread, unbindDraftFromThread } from "./scheduledTaskDraft";
+import { useRepositoryVcs } from "../../state/vcs";
 
 function MissingTaskDraft() {
   const gt = useGT();
@@ -127,6 +130,7 @@ export function ScheduledTaskModelPickerRouteScreen() {
 }
 
 export function ScheduledTaskBranchPickerRouteScreen() {
+  const vcsMessage = useVcsMessages();
   const gt = useGT();
   const navigation = useNavigation();
   const { editor, setEditor } = useScheduledTaskEditor();
@@ -146,12 +150,21 @@ export function ScheduledTaskBranchPickerRouteScreen() {
   const visibleBranches = branches.refs.filter(
     (branch) => !branch.isRemote && branch.name.toLowerCase().includes(query.trim().toLowerCase()),
   );
+  const { terminology } = useRepositoryVcs(
+    project?.environmentId ?? null,
+    project?.workspaceRoot ?? null,
+  );
 
   if (!editor) return <MissingTaskDraft />;
 
   return (
     <BranchPickerScreen
-      title={gt("Base branch")}
+      terminology={terminology}
+      title={
+        terminology.kind === "git"
+          ? gt("Base branch")
+          : vcsMessage(vcsMsg("Base {value0}", { value0: terminology.refNoun }))
+      }
       project={project}
       branches={visibleBranches}
       selectedBranchName={

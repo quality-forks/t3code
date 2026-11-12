@@ -1,4 +1,7 @@
 import { errorDisplayMessage } from "@t3tools/client-runtime/errors";
+import { cachedRepositoryTerminology } from "../../state/vcs";
+import { appAtomRegistry } from "../../state/atom-registry";
+import { environmentProjects } from "../../state/projects";
 import { useAtomValue } from "@effect/atom-react";
 import { visibleLinkedThreads } from "@t3tools/client-runtime/state/threads";
 import { AsyncResult } from "effect/reactivity";
@@ -104,6 +107,24 @@ export function usePullRequestThreads(
   const ask = async (thread?: LinkedThread, task: PullRequestAgentTask = "ask") => {
     if (!pr || !canAsk || pending.current) return;
     const terminology = sourceControlClients.get(pr.provider).changeRequest;
+    const shell = thread
+      ? appAtomRegistry.get(
+          environmentThreadShells.threadShellAtom({
+            environmentId: target.environmentId,
+            threadId: thread.id,
+          }),
+        )
+      : null;
+    const project = appAtomRegistry.get(
+      environmentProjects.projectAtom({
+        environmentId: target.environmentId,
+        projectId: thread?.projectId ?? target.input.projectId,
+      }),
+    );
+    const vcs = cachedRepositoryTerminology(
+      target.environmentId,
+      shell?.worktreePath ?? project?.workspaceRoot ?? null,
+    );
     pending.current = true;
     setBusy(true);
     const result = await settlePromise(async () => {
@@ -174,9 +195,10 @@ export function usePullRequestThreads(
           task,
           terminology,
           previousPrompts.current.get(draftKey),
+          vcs,
         ),
       );
-      previousPrompts.current.set(draftKey, pullRequestAgentPrompt(task, terminology));
+      previousPrompts.current.set(draftKey, pullRequestAgentPrompt(task, terminology, vcs));
       if (thread) openThread(thread);
       else
         openThreadRoute({

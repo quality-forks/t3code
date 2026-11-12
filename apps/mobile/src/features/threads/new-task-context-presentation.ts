@@ -1,4 +1,11 @@
+import { msg as vcsMsg } from "gt-react-native";
 import { sanitizeNewRefName } from "@t3tools/shared/git";
+import {
+  resolveNewWorkspaceBase,
+  workspaceBaseLabel,
+} from "@t3tools/client-runtime/worktree-setup";
+import type { VcsStatusLocalResult } from "@t3tools/contracts";
+import { DEFAULT_VCS_TERMINOLOGY, type VcsTerminology } from "@t3tools/shared/vcs";
 import { sourceControlClients } from "@t3tools/client-runtime/source-control-clients";
 import { changeRequestTermKind } from "../../lib/changeRequestTerm";
 import { resolveSendEnvMode } from "@t3tools/shared/projectSettings";
@@ -35,13 +42,25 @@ export function resolveNewTaskWorkspaceLabel(
   input: {
     readonly workspaceMode: WorkspaceMode;
     readonly worktreePath: string | null;
+    readonly terminology?: VcsTerminology;
   },
   resolve: MessageResolver = m,
 ): string {
+  const vcs = input.terminology ?? DEFAULT_VCS_TERMINOLOGY;
   if (input.workspaceMode === "worktree") {
-    return resolve(msg("New worktree"));
+    return resolve(
+      vcs.kind === "git"
+        ? vcsMsg("New worktree")
+        : vcsMsg("New {value0}", { value0: vcs.workspaceNoun }),
+    );
   }
-  return input.worktreePath ? resolve(msg("Current worktree")) : resolve(msg("Current checkout"));
+  return input.worktreePath
+    ? resolve(
+        vcs.kind === "git"
+          ? vcsMsg("Current worktree")
+          : vcsMsg("Current {value0}", { value0: vcs.workspaceNoun }),
+      )
+    : resolve(msg("Current checkout"));
 }
 
 export function resolveNewTaskBranchWorktreePath(input: {
@@ -97,6 +116,7 @@ export function resolveNewTaskBranchLabel(
     readonly startFromOrigin: boolean;
     readonly workspaceMode: WorkspaceMode;
     readonly pullRequestReference?: string;
+    readonly terminology?: VcsTerminology;
   },
   resolve: MessageResolver = m,
 ): string {
@@ -114,7 +134,13 @@ export function resolveNewTaskBranchLabel(
       );
   }
   if (!input.branchName) {
-    return resolve(msg("Choose branch"));
+    return resolve(
+      (input.terminology ?? DEFAULT_VCS_TERMINOLOGY).kind === "git"
+        ? msg("Choose branch")
+        : vcsMsg("Choose {value0}", {
+            value0: (input.terminology ?? DEFAULT_VCS_TERMINOLOGY).refNoun,
+          }),
+    );
   }
 
   if (input.workspaceMode === "local") {
@@ -122,9 +148,10 @@ export function resolveNewTaskBranchLabel(
   }
 
   // Only the server can determine a local branch's configured remote.
-  return input.startFromOrigin
-    ? resolve(msg("From {branchName} (remote)", { branchName: input.branchName }))
-    : resolve(msg("From {branchName}", { branchName: input.branchName }));
+  const label = workspaceBaseLabel(input.branchName, input.terminology?.kind === "jj", resolve);
+  return input.startFromOrigin && label === input.branchName
+    ? resolve(msg("From {branchName} (remote)", { branchName: label }))
+    : resolve(msg("From {branchName}", { branchName: label }));
 }
 
 export function shouldCheckoutNewTaskBranch(input: {
@@ -192,6 +219,8 @@ export function fillNewTaskWorkspaceBranch(input: {
  * this, so what each shows is what is sent.
  */
 export function resolveNewTaskDraftWorkspace(input: {
+  readonly status?: VcsStatusLocalResult | null | undefined;
+  readonly startFromOrigin?: boolean;
   readonly selection: ComposerDraftWorkspaceSelection | undefined;
   readonly canChooseWorkspace: boolean;
   readonly defaultMode: WorkspaceMode;
@@ -202,9 +231,22 @@ export function resolveNewTaskDraftWorkspace(input: {
   readonly projectCwd: string | null;
 }): ComposerDraftWorkspaceSelection {
   const selection = input.canChooseWorkspace ? input.selection : undefined;
+  const mode = selection?.mode ?? input.defaultMode;
+  const currentBase =
+    mode === "worktree" && !selection?.worktreePath && !selection?.pullRequestReference
+      ? resolveNewWorkspaceBase({
+          selectedBase: selection?.branch ?? null,
+          startFromOrigin: selection?.startFromOrigin ?? input.startFromOrigin ?? false,
+          status: input.status,
+          fallbackBase: null,
+        })
+      : null;
   return fillNewTaskWorkspaceBranch({
     selection: resolveNewTaskWorkspaceSelection({
-      selection,
+      selection:
+        currentBase === null
+          ? selection
+          : { ...selection, mode, branch: currentBase, worktreePath: null },
       fallback: { mode: input.defaultMode, branch: null, worktreePath: null },
       isGitRepo: input.isGitRepo,
       tracksGitRepositories: input.tracksGitRepositories,

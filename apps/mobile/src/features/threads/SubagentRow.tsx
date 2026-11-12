@@ -1,4 +1,5 @@
 import { scopeProjectRef, scopeThreadRef } from "@t3tools/client-runtime/environment";
+import { cachedRepositoryTerminology } from "../../state/vcs";
 import {
   normalizeProviderAccentColor,
   resolveProviderInstanceDisplayName,
@@ -10,7 +11,7 @@ import {
 } from "@t3tools/client-runtime/state/subagent-display";
 import { formatSubagentEffort } from "@t3tools/client-runtime/state/thread-execution";
 import type { EnvironmentId, OrchestrationV2Subagent } from "@t3tools/contracts";
-import { msg, T, useMessages, Var } from "gt-react-native";
+import { T, useMessages, Var } from "gt-react-native";
 import type { ReactNode } from "react";
 import { View } from "react-native";
 
@@ -148,6 +149,11 @@ function SubagentMetadata(props: {
     parent ? scopeProjectRef(environmentId, parent.projectId) : null,
   );
   const childProject = useProject(child ? scopeProjectRef(environmentId, child.projectId) : null);
+  const terminology = cachedRepositoryTerminology(
+    environmentId,
+    child?.worktreePath ?? childProject?.workspaceRoot ?? null,
+    messages,
+  );
   const selection = subagent.modelSelection;
   const { modelLabel, modelSlug, workspace } = resolveSubagentMetadata(
     {
@@ -158,10 +164,10 @@ function SubagentMetadata(props: {
       childThread: child,
       parentProject,
       childProject,
+      terminology,
     },
     messages,
   );
-  const branchLabel = messages(msg("Branch", { $context: "field label" }));
   const effort = formatSubagentEffort({ modelSlug, modelSelection: selection, provider });
   return (
     <View className="min-w-0 flex-row items-center gap-1.5">
@@ -194,7 +200,7 @@ function SubagentMetadata(props: {
         >
           <Text className="text-xs text-foreground-muted">·</Text>
           <SymbolView
-            name={label === branchLabel ? "arrow.triangle.branch" : "folder"}
+            name={label === terminology.refNounTitle ? "arrow.triangle.branch" : "folder"}
             size={11}
             tintColorClassName="accent-icon-muted"
           />

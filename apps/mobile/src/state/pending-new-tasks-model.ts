@@ -79,6 +79,8 @@ export function pendingDraftBranchNeedsRefs(
 
 /** The branch a draft will start on, derived the same way the new-task flow and send path do. */
 export function resolvePendingDraftBranch(input: {
+  readonly status?: Parameters<typeof resolveNewTaskDraftWorkspace>[0]["status"];
+  readonly startFromOrigin?: boolean;
   readonly draft: ComposerDraft;
   readonly defaults: PendingDraftProjectDefaults;
   readonly isGitRepo: boolean;
@@ -86,6 +88,8 @@ export function resolvePendingDraftBranch(input: {
   readonly projectCwd: string | null;
 }): string | null {
   return resolveNewTaskDraftWorkspace({
+    status: input.status,
+    ...(input.startFromOrigin === undefined ? {} : { startFromOrigin: input.startFromOrigin }),
     selection: input.draft.workspaceSelection,
     canChooseWorkspace: input.defaults.canChooseWorkspace,
     defaultMode: input.defaults.defaultMode,

@@ -1,3 +1,4 @@
+import { GIT_VCS_TERMINOLOGY } from "@t3tools/shared/vcs";
 import type { ReactNode } from "react";
 import { act, useSyncExternalStore } from "react";
 import { createRoot } from "react-dom/client";
@@ -86,7 +87,10 @@ vi.mock("../../state/entities", () => ({ useProjects: () => useSnapshot().projec
 vi.mock("../../state/workspace", () => ({
   useWorkspaceState: () => ({ state: useSnapshot().catalog }),
 }));
-vi.mock("../../state/vcs", () => ({ vcsEnvironment: { readRefs: {}, switchRef: {} } }));
+vi.mock("../../state/vcs", () => ({
+  cachedRepositoryTerminology: () => GIT_VCS_TERMINOLOGY,
+  vcsEnvironment: { readRefs: {}, switchRef: {} },
+}));
 vi.mock("@react-navigation/native", () => ({
   CommonActions: { goBack: () => ({ type: "GO_BACK" }) },
   createNavigationContainerRef: () => ({ current: null }),

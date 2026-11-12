@@ -553,6 +553,7 @@ export function NewTaskDraftScreen(props: {
   });
   const selectedBranchLabel = resolveNewTaskBranchLabel(
     {
+      terminology: flow.vcs,
       branchName: selectedBranchName,
       startFromOrigin: flow.startFromOrigin,
       workspaceMode: flow.workspaceMode,
@@ -562,6 +563,7 @@ export function NewTaskDraftScreen(props: {
   );
   const workspaceLabel = resolveNewTaskWorkspaceLabel(
     {
+      terminology: flow.vcs,
       workspaceMode: flow.workspaceMode,
       worktreePath: flow.selectedWorktreePath,
     },
@@ -723,16 +725,23 @@ export function NewTaskDraftScreen(props: {
   if (!selectedProject) return null;
 
   const setupBlockReason =
-    isIncomingShareReady && !isImportingShare
-      ? cloneBlocksStart
-        ? gt("Wait for the project clone to finish.")
-        : flow.submitting
-          ? gt("Starting the thread…")
-          : flow.workspaceMode === "worktree" &&
-              (!flow.isGitRepoKnown || (flow.isGitRepo && !flow.selectedBranchName))
-            ? gt("Choose a base branch before creating a worktree.")
-            : null
-      : gt("Wait for shared content to finish importing.");
+    flow.workspaceMode === "worktree" && flow.vcsUnsupportedReason
+      ? flow.vcsUnsupportedReason
+      : isIncomingShareReady && !isImportingShare
+        ? cloneBlocksStart
+          ? gt("Wait for the project clone to finish.")
+          : flow.submitting
+            ? gt("Starting the thread…")
+            : flow.workspaceMode === "worktree" &&
+                (!flow.isGitRepoKnown || (flow.isGitRepo && !flow.selectedBranchName))
+              ? flow.vcs.kind === "git"
+                ? gt("Choose a base branch before creating a worktree.")
+                : gt("Choose a base {ref} before creating a {workspace}.", {
+                    ref: flow.vcs.refNoun,
+                    workspace: flow.vcs.workspaceNoun,
+                  })
+              : null
+        : gt("Wait for shared content to finish importing.");
   const chooseProject = () => {
     if (isComposerInteractionLocked) {
       return;
@@ -919,11 +928,17 @@ export function NewTaskDraftScreen(props: {
       <ComposerInlineControl
         accessibilityHint={
           flow.workspaceMode === "local"
-            ? gt("Switches to a new worktree")
+            ? flow.vcs.kind === "git"
+              ? gt("Switches to a new worktree")
+              : gt("Switches to a new {workspace}", { workspace: flow.vcs.workspaceNoun })
             : gt("Switches to the current checkout")
         }
         accessibilityLabel={workspaceLabel}
-        disabled={isComposerInteractionLocked || !(flow.isGitRepo || flow.tracksGitRepositories)}
+        disabled={
+          isComposerInteractionLocked ||
+          (flow.workspaceMode === "local" &&
+            (!(flow.isGitRepo || flow.tracksGitRepositories) || !flow.vcsActionsSupported))
+        }
         renderIcon={(size) => (
           <NewTaskWorkspaceIcon
             workspaceMode={flow.workspaceMode}
@@ -965,13 +980,23 @@ export function NewTaskDraftScreen(props: {
           <ComposerInlineControl
             accessibilityLabel={
               startsNewWorktree
-                ? gt("Base branch: {branch}", { branch: selectedBranchLabel })
-                : gt("Branch: {branch}", { branch: selectedBranchLabel })
+                ? flow.vcs.kind === "git"
+                  ? gt("Base branch: {branch}", { branch: selectedBranchLabel })
+                  : gt("Base {ref}: {branch}", { ref: flow.vcs.refNoun, branch: selectedBranchLabel })
+                : flow.vcs.kind === "git"
+                  ? gt("Branch: {branch}", { branch: selectedBranchLabel })
+                  : gt("{ref}: {branch}", { ref: flow.vcs.refNounTitle, branch: selectedBranchLabel })
             }
             chevronDirection="right"
-            disabled={isComposerInteractionLocked || !flow.isGitRepo}
+            disabled={isComposerInteractionLocked || !flow.isGitRepo || !flow.vcsActionsSupported}
             icon="arrow.triangle.branch"
-            label={showBranchLoading ? gt("Loading branches…") : selectedBranchLabel}
+            label={
+              showBranchLoading
+                ? flow.vcs.kind === "git"
+                  ? gt("Loading branches…")
+                  : gt("Loading {refs}…", { refs: flow.vcs.refNounPlural })
+                : selectedBranchLabel
+            }
             maxWidth="100%"
             onPress={() => openContextPicker("NewTaskBranch")}
           />

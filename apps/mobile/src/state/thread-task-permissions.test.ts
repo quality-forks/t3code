@@ -1,3 +1,4 @@
+import { GIT_VCS_TERMINOLOGY } from "@t3tools/shared/vcs";
 import {
   AuthOrchestrationOperateScope,
   DEFAULT_SERVER_SETTINGS,
@@ -153,6 +154,9 @@ vi.mock("./entities", () => ({ useServerConfigs: () => new Map() }));
 vi.mock("./session", () => ({
   readEnvironmentScope: (environmentId: string, scope: string) =>
     scope === AuthOrchestrationOperateScope && state.grantedEnvironments.has(environmentId),
+}));
+vi.mock("./use-selected-thread-vcs", () => ({
+  useSelectedThreadVcs: () => ({ terminology: GIT_VCS_TERMINOLOGY }),
 }));
 vi.mock("./use-thread-selection", () => ({
   useThreadSelection: () => ({

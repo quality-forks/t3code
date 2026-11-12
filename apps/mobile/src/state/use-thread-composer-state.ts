@@ -1,3 +1,6 @@
+import { useMessages as useVcsMessages } from "gt-react-native";
+import { msg as vcsMsg } from "gt-react-native";
+import { useSelectedThreadVcs } from "./use-selected-thread-vcs";
 import { useComposerAttachmentActions } from "./use-composer-attachment-actions";
 import { errorDisplayMessage } from "@t3tools/client-runtime/errors";
 import * as Effect from "effect/Effect";
@@ -229,6 +232,7 @@ export function useThreadComposerState(input: {
     settings: { readonly runtimeMode: RuntimeMode; readonly modelSelection: ModelSelection },
   ) => Promise<boolean>;
 }) {
+  const vcsMessage = useVcsMessages();
   const {
     selectedThread: selectedThreadShell,
     selectedThreadCreation,
@@ -237,6 +241,7 @@ export function useThreadComposerState(input: {
   } = useThreadSelection();
   const resolve = useMessages();
   const locale = useLocale();
+  const { terminology: vcs } = useSelectedThreadVcs();
   const selectedThreadProjection = useSelectedThreadProjection();
   const selectedThreadVisibleTurnItems = useSelectedThreadVisibleTurnItems();
   const acknowledgedMessages = useAtomValue(acknowledgedThreadMessagesAtom);
@@ -971,7 +976,13 @@ export function useThreadComposerState(input: {
         selectedThreadProjection?.projection.runs ?? [],
       )
     ) {
-      return resolve(msg("Available once the thread's worktree is set up."));
+      return vcsMessage(
+        vcs.kind === "git"
+          ? vcsMsg("Available once the thread's worktree is set up.")
+          : vcsMsg("Available once the thread's {value0} is set up.", {
+              value0: vcs.workspaceNoun,
+            }),
+      );
     }
     return null;
   })();

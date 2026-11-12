@@ -1,5 +1,7 @@
+import { useMessages as useVcsMessages } from "gt-react-native";
+import { m as vcsMessage } from "../../i18n/messages";
+import { msg as vcsMsg } from "gt-react-native";
 import * as Dialog from "../../components/ui/Dialog";
-import { errorDisplayMessage } from "@t3tools/client-runtime/errors";
 import {
   CommonActions,
   useRoute,
@@ -7,8 +9,8 @@ import {
   usePreventRemoveContext,
   type StaticScreenProps,
 } from "@react-navigation/native";
-import { msg, T, useGT } from "gt-react-native";
-import { useEffect, useState } from "react";
+import { T, useGT } from "gt-react-native";
+import { useEffect, useMemo, useState } from "react";
 import { View } from "react-native";
 import { useAtomValue } from "@effect/atom-react";
 import {
@@ -18,13 +20,14 @@ import {
 } from "@t3tools/client-runtime/state/runtime";
 import { AsyncResult, Atom } from "effect/reactivity";
 import { AppText as Text } from "../../components/ui/AppText";
-import { m } from "../../i18n/messages";
 import { useProjects } from "../../state/entities";
 import { appAtomRegistry } from "../../state/atom-registry";
 import { rootNavigationRef } from "../../lib/rootNavigation";
 import { threadSelectionDeferral } from "../layout/deferred-navigation";
 import { useWorkspaceState } from "../../state/workspace";
-import { vcsEnvironment } from "../../state/vcs";
+import { cachedRepositoryTerminology, vcsEnvironment } from "../../state/vcs";
+import { localizedVcsTerminology } from "@t3tools/client-runtime/state/vcs";
+import { vcsOperationErrorMessage } from "@t3tools/client-runtime/errors";
 import { checkoutNewTaskBranch } from "./checkout-new-task-branch";
 import { resolveNewTaskBranchWorktreePath } from "./new-task-context-presentation";
 import {
@@ -56,6 +59,9 @@ const branchCheckouts = makeNewTaskBranchCheckouts({
           ? { environmentId: request.environmentId, workspaceRoot: request.workspaceRoot }
           : null,
       workspaceMode: "local",
+      isJj:
+        request.environmentId !== null &&
+        cachedRepositoryTerminology(request.environmentId, request.workspaceRoot).kind === "jj",
       readRefs: (input) =>
         runAtomCommand(appAtomRegistry, vcsEnvironment.readRefs, input, {
           reportFailure: false,
@@ -69,9 +75,24 @@ const branchCheckouts = makeNewTaskBranchCheckouts({
   onFailure: (request, result) => {
     if (!isAtomCommandInterrupted(result)) {
       const error = squashAtomCommandFailure(result);
+      const vcs = request.environmentId
+        ? cachedRepositoryTerminology(request.environmentId, request.workspaceRoot)
+        : localizedVcsTerminology(null, vcsMessage);
       Dialog.alert(
-        m(msg("Could not switch branch")),
-        errorDisplayMessage(error, m) ?? m(msg("The branch could not be checked out.")),
+        vcsMessage(
+          vcs.kind === "git"
+            ? vcsMsg("Could not switch branch")
+            : vcsMsg("Could not switch {value0}", { value0: vcs.refNoun }),
+        ),
+        vcsOperationErrorMessage(
+          error,
+          vcsMessage(
+            vcs.kind === "git"
+              ? vcsMsg("The branch could not be checked out.")
+              : vcsMsg("The {value0} could not be checked out.", { value0: vcs.refNoun }),
+          ),
+          vcsMessage,
+        ),
       );
     }
     rootNavigationRef.dispatch({
@@ -91,7 +112,20 @@ const idleBranchCheckoutAtom = Atom.make(AsyncResult.initial<BranchCheckoutResul
   Atom.withLabel("mobile:new-task-branch-checkout:idle"),
 );
 
+function usePreparedProjectRef(
+  initial: { environmentId: string | undefined; projectId: string | undefined; cloning: boolean },
+  branch: string | null | undefined,
+  worktreePath: string | null | undefined,
+) {
+  const { environmentId, projectId, cloning } = initial;
+  return useMemo(
+    () => ({ environmentId, projectId, branch, worktreePath, cloning }),
+    [environmentId, projectId, branch, worktreePath, cloning],
+  );
+}
+
 export function NewTaskDraftRouteScreen({ route }: StaticScreenProps<NewTaskDraftRouteParams>) {
+  const vcsMessage = useVcsMessages();
   const gt = useGT();
   const currentRoute = useRoute();
   const goBack = useWorkspaceBackNavigation();
@@ -100,15 +134,18 @@ export function NewTaskDraftRouteScreen({ route }: StaticScreenProps<NewTaskDraf
   const projects = useProjects();
   const { state: catalogState } = useWorkspaceState();
 
-  const initialProjectRef = {
-    environmentId: Array.isArray(params.environmentId)
-      ? params.environmentId[0]
-      : params.environmentId,
-    projectId: Array.isArray(params.projectId) ? params.projectId[0] : params.projectId,
-    branch: params.branch,
-    worktreePath: params.worktreePath,
-    cloning: (Array.isArray(params.cloning) ? params.cloning[0] : params.cloning) === "1",
-  };
+  const initialProjectRef = useMemo(
+    () => ({
+      environmentId: Array.isArray(params.environmentId)
+        ? params.environmentId[0]
+        : params.environmentId,
+      projectId: Array.isArray(params.projectId) ? params.projectId[0] : params.projectId,
+      branch: params.branch,
+      worktreePath: params.worktreePath,
+      cloning: (Array.isArray(params.cloning) ? params.cloning[0] : params.cloning) === "1",
+    }),
+    [params.environmentId, params.projectId, params.branch, params.worktreePath, params.cloning],
+  );
 
   const project = projects.find(
     (candidate) =>
@@ -132,6 +169,13 @@ export function NewTaskDraftRouteScreen({ route }: StaticScreenProps<NewTaskDraf
     });
   }
   const checkoutProject = project ?? resolvedProject;
+  const vcs = checkoutProject
+    ? cachedRepositoryTerminology(
+        checkoutProject.environmentId,
+        initialProjectRef.worktreePath ?? checkoutProject.workspaceRoot,
+        vcsMessage,
+      )
+    : localizedVcsTerminology(null, vcsMessage);
   const workspaceRoot = project?.workspaceRoot;
   const needsPreparation = Boolean(initialProjectRef.branch && !draftId);
   const waitingForProject =
@@ -173,6 +217,7 @@ export function NewTaskDraftRouteScreen({ route }: StaticScreenProps<NewTaskDraf
     branchCheckouts.release(checkoutKey);
   }, [checkoutKey, checkoutPending, removalBlocked]);
 
+  // NewTaskDraftScreen re-applies the route project whenever its identity changes.
   const prepared =
     result?._tag === "Success" && workspaceRoot
       ? {
@@ -186,18 +231,11 @@ export function NewTaskDraftRouteScreen({ route }: StaticScreenProps<NewTaskDraf
       : null;
   const preparedBranch = prepared ? prepared.branch : initialProjectRef.branch;
   const preparedWorktreePath = prepared ? prepared.worktreePath : initialProjectRef.worktreePath;
-  // NewTaskDraftScreen re-applies the route project (and rewrites the draft's
-  // workspace) whenever this object's identity changes. initialProjectRef is new
-  // every render, so read its fields first: the compiler then memoizes this
-  // object on them, instead of on initialProjectRef.
-  const { environmentId, projectId, cloning } = initialProjectRef;
-  const preparedProjectRef = {
-    environmentId,
-    projectId,
-    branch: preparedBranch,
-    worktreePath: preparedWorktreePath,
-    cloning,
-  };
+  const preparedProjectRef = usePreparedProjectRef(
+    initialProjectRef,
+    preparedBranch,
+    preparedWorktreePath,
+  );
   const preparingBranch = checkoutPending || (needsPreparation && result?._tag !== "Success");
 
   return (
@@ -206,7 +244,11 @@ export function NewTaskDraftRouteScreen({ route }: StaticScreenProps<NewTaskDraf
         <ThreadScreenFallback header={<AppBar title={gt("New thread")} onBack={goBack} />}>
           <View className="flex-1 items-center justify-center bg-screen">
             <Text className="text-foreground">
-              <T>Switching branch...</T>
+              {vcs.kind === "git" ? (
+                <T>Switching branch...</T>
+              ) : (
+                vcsMessage(vcsMsg("Switching {value0}...", { value0: vcs.refNoun }))
+              )}
             </Text>
           </View>
         </ThreadScreenFallback>

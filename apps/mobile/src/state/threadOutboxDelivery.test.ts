@@ -68,6 +68,8 @@ const harness = vi.hoisted(() => ({
   })(),
 }));
 
+vi.mock("./vcs", () => ({ cachedRepositoryTerminology: () => ({ kind: "git" }) }));
+
 vi.mock("react-native", () => ({ Alert: { alert: vi.fn() } }));
 
 vi.mock("expo-file-system", () => ({

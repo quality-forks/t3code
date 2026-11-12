@@ -44,6 +44,7 @@ const QueuedThreadCreationSchema = Schema.Struct({
   projectCwd: Schema.optional(Schema.String),
   workspaceMode: Schema.Literals(["local", "worktree"]),
   branch: Schema.NullOr(Schema.String),
+  worktreeBaseSelected: Schema.optional(Schema.Boolean),
   worktreePath: Schema.NullOr(Schema.String),
   startFromOrigin: Schema.optional(Schema.Boolean),
   pullRequestReference: Schema.optional(Schema.String),
@@ -80,6 +81,7 @@ export interface QueuedThreadCreation {
   readonly projectCwd?: string;
   readonly workspaceMode: "local" | "worktree";
   readonly branch: string | null;
+  readonly worktreeBaseSelected?: boolean;
   readonly worktreePath: string | null;
   readonly startFromOrigin?: boolean;
   readonly pullRequestReference?: string;
