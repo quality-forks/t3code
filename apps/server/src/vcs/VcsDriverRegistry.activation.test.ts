@@ -32,41 +32,38 @@ const normalizeGitArgs = (args: ReadonlyArray<string>): ReadonlyArray<string> =>
   args[0] === "-C" && args.length >= 2 ? args.slice(2) : args;
 
 describe("VcsDriverRegistry activation", () => {
-  it.effect(
-    "auto-detects a colocated workspace as jj, ahead of git, without running a version probe",
-    () => {
-      let processCalls = 0;
-      const layer = Layer.effect(VcsDriverRegistry.VcsDriverRegistry, VcsDriverRegistry.make).pipe(
-        Layer.provide(JjVcsDriver.layer),
-        Layer.provide(VcsProjectConfig.layer),
-        Layer.provideMerge(Layer.mergeAll(NodeServices.layer, NodeCrypto.layer)),
-        Layer.provide(
-          Layer.mock(VcsProcess.VcsProcess)({
-            run: () =>
-              Effect.sync(() => {
-                processCalls += 1;
-                return processOutput("jj 0.46.0\n");
-              }),
-          }),
-        ),
-      );
+  it.effect("auto-detects an available colocated workspace as jj, ahead of git", () => {
+    let processCalls = 0;
+    const layer = Layer.effect(VcsDriverRegistry.VcsDriverRegistry, VcsDriverRegistry.make).pipe(
+      Layer.provide(JjVcsDriver.layer),
+      Layer.provide(VcsProjectConfig.layer),
+      Layer.provideMerge(Layer.mergeAll(NodeServices.layer, NodeCrypto.layer)),
+      Layer.provide(
+        Layer.mock(VcsProcess.VcsProcess)({
+          run: () =>
+            Effect.sync(() => {
+              processCalls += 1;
+              return processOutput("jj 0.46.0\n");
+            }),
+        }),
+      ),
+    );
 
-      return Effect.gen(function* () {
-        const registry = yield* VcsDriverRegistry.VcsDriverRegistry;
-        const fileSystem = yield* FileSystem.FileSystem;
-        const path = yield* Path.Path;
-        const created = yield* fileSystem.makeTempDirectoryScoped({ prefix: "t3-jj-registry-" });
-        const root = yield* fileSystem.realPath(created);
-        yield* fileSystem.makeDirectory(path.join(root, ".jj", "repo"), { recursive: true });
-        yield* fileSystem.makeDirectory(path.join(root, ".git"), { recursive: true });
+    return Effect.gen(function* () {
+      const registry = yield* VcsDriverRegistry.VcsDriverRegistry;
+      const fileSystem = yield* FileSystem.FileSystem;
+      const path = yield* Path.Path;
+      const created = yield* fileSystem.makeTempDirectoryScoped({ prefix: "t3-jj-registry-" });
+      const root = yield* fileSystem.realPath(created);
+      yield* fileSystem.makeDirectory(path.join(root, ".jj", "repo"), { recursive: true });
+      yield* fileSystem.makeDirectory(path.join(root, ".git"), { recursive: true });
 
-        const detected = yield* registry.detect({ cwd: root });
-        assert.strictEqual(detected?.kind, "jj");
-        assert.strictEqual(detected?.repository.rootPath, root);
-        assert.strictEqual(processCalls, 0);
-      }).pipe(Effect.provide(layer));
-    },
-  );
+      const detected = yield* registry.detect({ cwd: root });
+      assert.strictEqual(detected?.kind, "jj");
+      assert.strictEqual(detected?.repository.rootPath, root);
+      assert.strictEqual(processCalls, 1);
+    }).pipe(Effect.provide(layer));
+  });
 
   const makeDiskBackedLayer = (rootDir: string, calls: string[], failJjDetection = false) =>
     Layer.effect(VcsDriverRegistry.VcsDriverRegistry, VcsDriverRegistry.make).pipe(

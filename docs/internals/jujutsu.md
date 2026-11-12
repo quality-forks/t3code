@@ -95,7 +95,8 @@ files excluded by snapshot size limits may be lost.
 
 The registry selects jj before colocated Git and respects nested Git repository boundaries.
 Jujutsu 0.46 or newer and a colocated main repository are required. An unusable jj repository
-remains jj and reports its refusal; it never silently switches to Git.
+reports its refusal when explicitly pinned to jj. Automatic detection falls back to a usable Git
+checkout at the same real root when jj is unavailable or unsupported, with a dismissible notice.
 
 Automatic cleanup preserves jj workspaces. T3 never runs `jj workspace update-stale` to repair a
 workspace automatically: that can overwrite unsnapshotted files. Stale-workspace errors retain

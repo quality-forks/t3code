@@ -656,7 +656,23 @@ export const make = Effect.gen(function* () {
       "GitWorkflowService.status",
       statusRouting,
       () => Effect.succeed(nonRepositoryStatus()),
-      { git: gitManager.status, jj: jjWorkflow.status },
+      {
+        git: (input) =>
+          gitManager
+            .status(input)
+            .pipe(
+              Effect.flatMap((status) =>
+                detectForFacade(input.cwd).pipe(
+                  Effect.map((handle) =>
+                    handle?.notice
+                      ? { ...status, vcs: { kind: "git" as const, notice: handle.notice } }
+                      : status,
+                  ),
+                ),
+              ),
+            ),
+        jj: jjWorkflow.status,
+      },
     ),
     localStatus: Effect.fn("GitWorkflowService.localStatus")((input, options) =>
       routeOr(
@@ -664,7 +680,20 @@ export const make = Effect.gen(function* () {
         statusRouting,
         () => Effect.succeed(nonRepositoryLocalStatus()),
         {
-          git: (statusInput: VcsStatusInput) => gitManager.localStatus(statusInput, options),
+          git: (statusInput: VcsStatusInput) =>
+            gitManager
+              .localStatus(statusInput, options)
+              .pipe(
+                Effect.flatMap((status) =>
+                  detectForFacade(statusInput.cwd).pipe(
+                    Effect.map((handle) =>
+                      handle?.notice
+                        ? { ...status, vcs: { kind: "git" as const, notice: handle.notice } }
+                        : status,
+                    ),
+                  ),
+                ),
+              ),
           jj: jjWorkflow.localStatus,
         },
       )(input),

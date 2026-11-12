@@ -6,6 +6,7 @@ import type {
   ThreadId,
 } from "@t3tools/contracts";
 import type { Dispatch, SetStateAction } from "react";
+import { VcsFallbackNotice } from "../VcsFallbackNotice";
 import {
   dismissProviderStatusBannerForSession,
   ProviderStatusBanner,
@@ -18,6 +19,7 @@ import { dismissThreadErrorBannerForSession, ThreadErrorBanner } from "./ThreadE
  */
 export function ChatBannerLane(props: {
   environmentId: EnvironmentId;
+  vcsFallbackNotice?: Parameters<typeof VcsFallbackNotice>[0] | null;
   providerStatus: ServerProvider | null;
   providerStatusDismissalKey: string | null;
   onOpenProviderSetup: (instanceId: ProviderInstanceId) => void;
@@ -43,6 +45,7 @@ export function ChatBannerLane(props: {
   } = props;
   return (
     <div className="chat-banner-lane pointer-events-none absolute top-0 z-30 flex flex-col">
+      {props.vcsFallbackNotice ? <VcsFallbackNotice {...props.vcsFallbackNotice} /> : null}
       <ProviderStatusBanner
         environmentId={props.environmentId}
         status={providerStatus}

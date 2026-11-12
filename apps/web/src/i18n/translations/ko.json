@@ -12526,5 +12526,6 @@
   "671dd52f6e846169": "Create & switch",
   "edf557a7aaff376a": "Loading {value0}...",
   "9d2147d12c2a75d3": "Loading more {value0}...",
-  "29686338af0682ea": "Showing {value0} of {value1} {value2}"
+  "29686338af0682ea": "Showing {value0} of {value1} {value2}",
+  "3e6acdf8a5f8b2e9": "Dismiss repository fallback notice"
 }

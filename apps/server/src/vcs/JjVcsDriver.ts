@@ -92,6 +92,7 @@ export interface JjWorkspace {
 type VcsDriverService = VcsDriver.VcsDriver["Service"];
 
 export interface JjVcsDriverShape extends VcsDriverService {
+  readonly availability: (cwd: string) => Effect.Effect<JjAvailability.JjAvailability>;
   readonly capabilities: VcsDriverCapabilities & { readonly kind: "jj" };
   readonly repoPaths: (cwd: string) => Effect.Effect<JjRepo.JjRepoPaths, VcsError>;
   /** Always implemented here: `false` for a repository jj detects but cannot operate on. */
@@ -471,7 +472,8 @@ export const makeVcsDriverShape = Effect.gen(function* () {
   const ensureUsable: JjVcsDriverShape["ensureUsable"] = Effect.fn("JjVcsDriver.ensureUsable")(
     function* (operation: string, cwd: string) {
       const paths = yield* repoPaths(cwd);
-      const reason = JjAvailability.jjUnsupportedReason({
+      const linked = paths.gitDir === null && !paths.isSecondaryWorkspace && (yield* JjRepo.isGitLinkedWorktree(fileSystem, path, paths.workspaceRoot));
+      const reason = linked ? JjAvailability.JJ_LINKED_GIT_WORKTREE_UNSUPPORTED_REASON : JjAvailability.jjUnsupportedReason({
         availability: yield* availability(paths.workspaceRoot),
         colocated: paths.gitDir !== null,
       });
@@ -997,6 +999,7 @@ export const makeVcsDriverShape = Effect.gen(function* () {
 
   return {
     capabilities,
+    availability,
     repoMetadataKey,
     repoOperationKey,
     execute,

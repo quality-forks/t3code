@@ -3576,6 +3576,16 @@ export default function ChatView(props: ChatViewProps) {
             {isWorkspaceFileDragActive ? <WorkspaceFileDropOverlay /> : null}
             <ChatBannerLane
               environmentId={activeThread.environmentId}
+              vcsFallbackNotice={
+                gitStatusCwd && gitStatusQuery.data?.vcs?.kind === "git"
+                  ? {
+                      environmentId: activeThread.environmentId,
+                      repository: gitStatusCwd,
+                      notice: gitStatusQuery.data.vcs.notice,
+                      reason: null,
+                    }
+                  : null
+              }
               providerStatus={visibleProviderStatus}
               providerStatusDismissalKey={providerStatusDismissalKey}
               onOpenProviderSetup={openProviderSetupStable}

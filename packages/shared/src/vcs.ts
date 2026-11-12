@@ -133,6 +133,22 @@ export const JJ_VCS_TERMINOLOGY: VcsTerminology = {
 
 export const DEFAULT_VCS_TERMINOLOGY = GIT_VCS_TERMINOLOGY;
 
+export function vcsNoticeFingerprint(notice: string | null, reason: string | null): string {
+  return JSON.stringify([notice, reason]);
+}
+
+export function vcsNoticeStorageKey(environmentId: string, repository: string): string {
+  return `vcs-fallback-notice:${JSON.stringify([environmentId, repository])}`;
+}
+
+export function resolveVcsFallbackNotice(
+  status: Pick<VcsStatusLocalResult, "vcs"> | null | undefined,
+) {
+  return status?.vcs?.kind === "git" && status.vcs.notice
+    ? { notice: status.vcs.notice, reason: null }
+    : null;
+}
+
 /** `null`/`undefined`/`"unknown"` resolve to Git terms so a transient status never flips copy. */
 export function getVcsTerminology(kind: VcsDriverKind | null | undefined): VcsTerminology {
   return kind === "jj" ? JJ_VCS_TERMINOLOGY : GIT_VCS_TERMINOLOGY;
@@ -149,7 +165,7 @@ export function resolveVcsTerminology(
 export function resolveVcsUnsupportedReason(
   status: Pick<VcsStatusLocalResult, "vcs"> | null | undefined,
 ): string | null {
-  return status?.vcs?.unsupportedReason ?? null;
+  return status?.vcs?.kind === "jj" ? (status.vcs.unsupportedReason ?? null) : null;
 }
 
 /** Unknown status retains the original controls; only an explicit unsupported reason blocks them. */
