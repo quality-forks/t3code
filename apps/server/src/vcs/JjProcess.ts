@@ -50,6 +50,8 @@ export interface JjCommandOptions {
   readonly appendTruncationMarker?: boolean;
   /** Pure reads that must not snapshot the working copy. Adds `--ignore-working-copy`. */
   readonly ignoreWorkingCopy?: boolean;
+  /** Cleanup must inspect stale workspaces without repairing them. */
+  readonly retryStaleWorkspace?: boolean;
   /** Missing repositories are failures during revision reads, not absent revision results. */
   readonly readingChange?: boolean;
   /** Let VcsProcess retry transient checkpoint failures before mapping their diagnostics. */
@@ -105,7 +107,6 @@ function jjArgs(args: ReadonlyArray<string>, options: JjCommandOptions | undefin
   ];
 }
 
-// Leave stale-workspace repair to the user: update-stale can overwrite unsnapshotted files.
 export const jjCommand = Effect.fn("JjProcess.jjCommand")(function* (
   process: VcsProcess.VcsProcess["Service"],
   operation: string,
@@ -125,7 +126,34 @@ export const jjCommand = Effect.fn("JjProcess.jjCommand")(function* (
     allowNonZeroExit: true,
   } satisfies VcsProcess.VcsProcessInput;
 
-  const result = yield* process.run(input);
+  let result = yield* process.run(input);
+  if (
+    result.exitCode !== 0 &&
+    options?.ignoreWorkingCopy !== true &&
+    options?.retryStaleWorkspace !== false &&
+    ["working copy is stale", "concurrent modification detected"].some((marker) =>
+      result.stderr.toLowerCase().includes(marker),
+    )
+  ) {
+    yield* Effect.logWarning("Repairing stale Jujutsu workspace", { cwd, operation });
+    const repair = yield* process.run({
+      operation: "JjProcess.updateStale",
+      command: "jj",
+      cwd,
+      args: jjArgs(["workspace", "update-stale"], options),
+      ...(options?.env !== undefined ? { env: options.env } : {}),
+      timeoutMs: 30_000,
+      maxOutputBytes: 4096,
+      allowNonZeroExit: true,
+    });
+    if (repair.exitCode !== 0) {
+      yield* Effect.logWarning("Jujutsu stale-workspace repair failed; retrying the command once", {
+        cwd,
+        stderr: repair.stderr.slice(0, LOGGED_STDERR_MAX_CHARS),
+      });
+    }
+    result = yield* process.run(input);
+  }
 
   if (result.stderr.toLowerCase().includes(LARGE_FILE_BANNER)) {
     yield* Effect.logWarning("jj refused to snapshot some files", {

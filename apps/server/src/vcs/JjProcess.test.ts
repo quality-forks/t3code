@@ -170,7 +170,7 @@ describe("jjCommand", () => {
     }).pipe(Effect.provide(recordingProcess(calls, () => output())));
   });
 
-  it.effect("propagates a stale failure without updating the workspace", () => {
+  it.effect("repairs a stale workspace once and propagates a persistent failure", () => {
     const calls: VcsProcess.VcsProcessInput[] = [];
 
     return Effect.gen(function* () {
@@ -180,7 +180,7 @@ describe("jjCommand", () => {
       );
 
       assert.equal(error._tag, "VcsProcessExitError");
-      assert.equal(calls.length, 1);
+      assert.equal(calls.length, 3);
     }).pipe(
       Effect.provide(
         recordingProcess(calls, () =>

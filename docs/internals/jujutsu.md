@@ -98,9 +98,10 @@ Jujutsu 0.46 or newer and a colocated main repository are required. An unusable 
 reports its refusal when explicitly pinned to jj. Automatic detection falls back to a usable Git
 checkout at the same real root when jj is unavailable or unsupported, with a dismissible notice.
 
-Automatic cleanup preserves jj workspaces. T3 never runs `jj workspace update-stale` to repair a
-workspace automatically: that can overwrite unsnapshotted files. Stale-workspace errors retain
-jj's diagnostic so the user can inspect the files and explicitly repair the workspace.
+Automatic cleanup preserves jj workspaces. A command reporting a stale working copy or concurrent
+modification triggers `jj workspace update-stale` and one retry. Pure reads using
+`--ignore-working-copy` and cleanup inspections never repair workspaces. Repair can overwrite
+unsnapshotted files; persistent failures retain jj's diagnostic.
 
 An explicitly remote-qualified workspace base uses that remote bookmark, even when
 a same-named local bookmark contains unpublished commits. Tracking does not replace the base.
