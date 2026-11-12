@@ -1,5 +1,8 @@
+import { useMessages as useVcsMessages } from "gt-react-native";
+import { msg as vcsMsg } from "gt-react-native";
 import { msg, T, useGT, useMessages } from "gt-react-native";
 import { BranchNamingMode, type ServerSettingsPatch } from "@t3tools/contracts";
+import { DEFAULT_VCS_TERMINOLOGY, type VcsTerminology } from "@t3tools/shared/vcs";
 import { useEffect, useEffectEvent, useRef } from "react";
 import { View } from "react-native";
 
@@ -10,7 +13,7 @@ import { SettingsSection } from "./SettingsSection";
 const MODES = {
   static: {
     label: msg("Static prefix"),
-    description: msg("Add your prefix to the generated branch name."),
+    description: msg("Add your prefix to the generated name."),
   },
   semantic: {
     label: msg("Semantic prefix"),
@@ -25,6 +28,7 @@ const MODES = {
 } satisfies Record<BranchNamingMode, { label: string; description: string }>;
 
 export function BranchNamingSettings(props: {
+  terminology?: VcsTerminology;
   mode: BranchNamingMode | null;
   prefix: string | null;
   instructions: string | null;
@@ -32,8 +36,10 @@ export function BranchNamingSettings(props: {
   disabled: Readonly<Record<"mode" | "prefix" | "instructions", boolean>>;
   onChange: (patch: ServerSettingsPatch) => void;
 }) {
+  const vcsMessage = useVcsMessages();
   const gt = useGT();
   const m = useMessages();
+  const vcs = props.terminology ?? DEFAULT_VCS_TERMINOLOGY;
   // Save on exit too: Android Back hides the keyboard without ending editing.
   type Field = "branchNamePrefix" | "branchNameInstructions";
   const drafts = useRef<Partial<Record<Field, { text: string; over: string | null }>>>({});
@@ -63,7 +69,16 @@ export function BranchNamingSettings(props: {
   useEffect(() => () => saveDrafts(), []);
   return (
     <SettingsSection
-      title={gt("Worktree branch naming")}
+      title={
+        vcs.kind === "git"
+          ? gt("Worktree branch naming")
+          : vcsMessage(
+              vcsMsg("{value0} {value1} naming", {
+                value0: vcs.workspaceNounTitle,
+                value1: vcs.refNoun,
+              }),
+            )
+      }
       trailing={
         props.mode === null ? (
           <Text className="text-xs text-foreground-muted">
@@ -76,7 +91,11 @@ export function BranchNamingSettings(props: {
         <SettingsChoiceRow
           key={mode}
           label={m(MODES[mode].label)}
-          description={m(MODES[mode].description)}
+          description={
+            mode === "static" && vcs.kind === "git"
+              ? gt("Add your prefix to the generated branch name.")
+              : m(MODES[mode].description)
+          }
           selected={props.mode === mode}
           separated={index > 0}
           disabled={props.disabled.mode}
@@ -94,7 +113,11 @@ export function BranchNamingSettings(props: {
           </Text>
           <AppTextInput
             key={props.prefix}
-            accessibilityLabel={gt("Branch prefix")}
+            accessibilityLabel={
+              vcs.kind === "git"
+                ? gt("Branch prefix")
+                : vcsMessage(vcsMsg("{value0} prefix", { value0: vcs.refNounTitle }))
+            }
             onChangeText={(text) => edit("branchNamePrefix", text)}
             defaultValue={props.prefix ?? ""}
             placeholder={props.prefix === null ? gt("Mixed") : gt("No prefix")}
@@ -113,7 +136,11 @@ export function BranchNamingSettings(props: {
           </Text>
           <AppTextInput
             key={props.instructions}
-            accessibilityLabel={gt("Branch naming instructions")}
+            accessibilityLabel={
+              vcs.kind === "git"
+                ? gt("Branch naming instructions")
+                : vcsMessage(vcsMsg("{value0} naming instructions", { value0: vcs.refNounTitle }))
+            }
             onChangeText={(text) => edit("branchNameInstructions", text)}
             defaultValue={props.instructions ?? ""}
             placeholder={

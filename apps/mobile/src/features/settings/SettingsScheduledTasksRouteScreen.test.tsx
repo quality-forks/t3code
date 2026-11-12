@@ -1,4 +1,5 @@
 import { RegistryContext } from "@effect/atom-react";
+import { GIT_VCS_TERMINOLOGY } from "@t3tools/shared/vcs";
 import {
   EnvironmentId,
   ProjectId,
@@ -61,6 +62,9 @@ vi.mock("../layout/workspace/useSelectWorkspaceDetail", () => ({
   useSelectWorkspaceDetail: () => vi.fn(),
 }));
 vi.mock("../../state/threads", () => ({ threadFamilies: {} }));
+vi.mock("../../state/vcs", () => ({
+  useRepositoryVcs: () => ({ terminology: GIT_VCS_TERMINOLOGY }),
+}));
 vi.mock("../../lib/copyTextWithHaptic", () => ({ tryCopyTextWithHaptic: vi.fn() }));
 vi.mock("../voice-input/useVoiceInputController", () => ({
   useVoiceInputController: () => ({ blocksSubmission: false }),

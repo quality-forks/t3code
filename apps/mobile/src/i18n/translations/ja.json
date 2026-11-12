@@ -5657,5 +5657,17 @@
   "5db516306bb76132": "{value0} ready",
   "c1171bef426cbbb8": "{value0} setup",
   "0db8a5fe3b3eaf5e": "Cancel {value0} setup",
-  "b70d317d208d577e": "Fetch base {ref}"
+  "b70d317d208d577e": "Fetch base {ref}",
+  "490bed1b6d9e32a0": "Worktrees and workspaces",
+  "d58f7f2a2e578d06": "New worktree or workspace",
+  "96c06bfcaf3c8475": "Git default branch",
+  "a2d9e05e80f2853d": "For Git repositories, keep the default branch current when there are no local changes. Jujutsu repositories are never pulled automatically.",
+  "b623b23b9624f89d": "New worktrees and workspaces",
+  "78c305c9f8ad47e3": "Start from the latest remote revision of the base branch or bookmark. Uses its tracked remote ref, then the same-named ref on origin, and uses the local ref when the remote ref is missing.",
+  "45afd27ea98dee0c": "Checkout submodules",
+  "7f2bedc24ed5ebdd": "Jujutsu workspaces do not use this cache.",
+  "505b51644cd78783": "{value0} {value1} naming",
+  "a5132bbb911f07a2": "{value0} prefix",
+  "f346189541c63bbb": "{value0} naming instructions",
+  "3ead59d434c219c8": "Add your prefix to the generated name."
 }

@@ -1,9 +1,14 @@
+import { GIT_VCS_TERMINOLOGY } from "@t3tools/shared/vcs";
 import { DEFAULT_SERVER_SETTINGS, type ServerSettingsPatch } from "@t3tools/contracts";
 import { AsyncResult } from "effect/reactivity";
 import type { ReactNode } from "react";
 import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vite-plus/test";
+
+vi.mock("../../state/vcs", () => ({
+  useRepositoryVcs: () => ({ terminology: GIT_VCS_TERMINOLOGY }),
+}));
 
 const { Children, mocks } = vi.hoisted(() => ({
   Children: ({ children }: { children?: ReactNode }) => children,

@@ -24,6 +24,7 @@ import {
 } from "../threads/thread-settings-options";
 import { SettingsScreen } from "./components/SettingsScreen";
 import { useSettingsEnvironmentMenu } from "./components/SettingsEnvironmentFilterHeader";
+import { useRepositoryVcs } from "../../state/vcs";
 import { BranchNamingSettings } from "./components/BranchNamingSettings";
 import { DatabaseStorageNotice } from "./components/DatabaseStorageNotice";
 import { ListChoiceRow as SettingsChoiceRow } from "../../components/ui/ListChoiceRow";
@@ -51,7 +52,7 @@ type SettingsPage = "threads" | "source-control" | "worktrees" | "maintenance";
 const PAGE_TITLES: Record<SettingsPage, string> = {
   threads: msg("Threads", { $context: "settings page title" }),
   "source-control": msg("Source control & issues"),
-  worktrees: msg("Worktrees"),
+  worktrees: msg("Worktrees and workspaces"),
   maintenance: msg("Maintenance"),
 };
 
@@ -119,7 +120,7 @@ const WORKSPACE_CHOICES: ReadonlyArray<{
   },
   {
     mode: "worktree",
-    label: msg("New worktree"),
+    label: msg("New worktree or workspace"),
     description: msg("Give each new thread a separate checkout."),
   },
 ];
@@ -191,6 +192,12 @@ function ServerSettingsDetail(props: { readonly page: SettingsPage }) {
   const navigation = useNavigation();
   const { selectedTargets, projectGroups, selectedProjectKey } = useSettingsEnvironmentFilter();
   const selectedProject = projectGroups.find((group) => group.key === selectedProjectKey);
+  const terminologyProject =
+    selectedProject?.members.length === 1 ? selectedProject.members[0]?.project : null;
+  const { terminology } = useRepositoryVcs(
+    terminologyProject?.environmentId ?? null,
+    terminologyProject?.workspaceRoot ?? null,
+  );
   const writableEnvironments = useEnvironmentsWithScope(selectedTargets, AuthSettingsWriteScope);
   const projectSelected = selectedProjectKey !== null;
   const targets = resolveMobileSettingsTargets(
@@ -294,7 +301,14 @@ function ServerSettingsDetail(props: { readonly page: SettingsPage }) {
       ));
 
   return (
-    <SettingsScreen title={m(PAGE_TITLES[props.page])} menus={[environmentMenu]}>
+    <SettingsScreen
+      title={
+        props.page === "worktrees" && terminology.kind === "git"
+          ? gt("Worktrees")
+          : m(PAGE_TITLES[props.page])
+      }
+      menus={[environmentMenu]}
+    >
       <ScrollView
         contentInsetAdjustmentBehavior="automatic"
         showsVerticalScrollIndicator={false}
@@ -338,7 +352,11 @@ function ServerSettingsDetail(props: { readonly page: SettingsPage }) {
                   ).map((choice, index) => (
                     <SettingsChoiceRow
                       key={choice.mode ?? "inherit"}
-                      label={m(choice.label)}
+                      label={
+                        choice.mode === "worktree" && terminology.kind === "git"
+                          ? gt("New worktree")
+                          : m(choice.label)
+                      }
                       description={m(choice.description)}
                       selected={
                         !isMixed("defaultThreadEnvMode") &&
@@ -435,13 +453,21 @@ function ServerSettingsDetail(props: { readonly page: SettingsPage }) {
                     onValueChange={(value) => write({ removeAgentCreditsOnMerge: value })}
                   />
                 </SettingsSection>
-                <SettingsSection title={gt("Default branch")}>
+                <SettingsSection
+                  title={
+                    terminology.kind === "git" ? gt("Default branch") : gt("Git default branch")
+                  }
+                >
                   <SettingsSwitchRow
                     icon="arrow.down.circle"
                     label={gt("Automatically pull")}
                     subtitle={managedSubtitle(
                       "defaultAutoPull",
-                      gt("Keep the default branch current when there are no local changes."),
+                      terminology.kind === "git"
+                        ? gt("Keep the default branch current when there are no local changes.")
+                        : gt(
+                            "For Git repositories, keep the default branch current when there are no local changes. Jujutsu repositories are never pulled automatically.",
+                          ),
                     )}
                     value={uniform("defaultAutoPull")}
                     disabled={disabledFor("defaultAutoPull")}
@@ -466,15 +492,25 @@ function ServerSettingsDetail(props: { readonly page: SettingsPage }) {
 
             {props.page === "worktrees" ? (
               <>
-                <SettingsSection title={gt("New worktrees")}>
+                <SettingsSection
+                  title={
+                    terminology.kind === "git"
+                      ? gt("New worktrees")
+                      : gt("New worktrees and workspaces")
+                  }
+                >
                   <SettingsSwitchRow
                     icon="arrow.triangle.branch"
                     label={gt("Start from remote")}
                     subtitle={managedSubtitle(
                       "newWorktreesStartFromOrigin",
-                      gt(
-                        "Uses the latest commit of the base branch’s tracked remote branch, even if its name differs. Otherwise uses the same-named branch on origin. Uses your local branch if that remote branch is missing.",
-                      ),
+                      terminology.kind === "git"
+                        ? gt(
+                            "Uses the latest commit of the base branch’s tracked remote branch, even if its name differs. Otherwise uses the same-named branch on origin. Uses your local branch if that remote branch is missing.",
+                          )
+                        : gt(
+                            "Start from the latest remote revision of the base branch or bookmark. Uses its tracked remote ref, then the same-named ref on origin, and uses the local ref when the remote ref is missing.",
+                          ),
                     )}
                     value={uniform("newWorktreesStartFromOrigin")}
                     disabled={disabledFor("newWorktreesStartFromOrigin")}
@@ -482,7 +518,11 @@ function ServerSettingsDetail(props: { readonly page: SettingsPage }) {
                   />
                 </SettingsSection>
                 <SettingsSection
-                  title={gt("Worktree submodules")}
+                  title={
+                    terminology.kind === "git"
+                      ? gt("Worktree submodules")
+                      : gt("Checkout submodules")
+                  }
                   footer={managed("worktreeSubmodules")}
                   trailing={
                     pendingWrites === 0 && isMixed("worktreeSubmodules") ? (
@@ -508,6 +548,7 @@ function ServerSettingsDetail(props: { readonly page: SettingsPage }) {
                   ))}
                 </SettingsSection>
                 <BranchNamingSettings
+                  terminology={terminology}
                   key={targetsKey}
                   mode={uniform("branchNamingMode")}
                   prefix={uniform("branchNamePrefix")}

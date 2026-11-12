@@ -1,5 +1,8 @@
+import { useMessages as useVcsMessages } from "gt-react-native";
+import { msg as vcsMsg } from "gt-react-native";
 import { msg, T, useGT, useLocale, useMessages, Var } from "gt-react-native";
 import { managedCapabilityDenial } from "@t3tools/client-runtime/contract-labels";
+import { useRepositoryVcs } from "../../state/vcs";
 import * as Dialog from "../../components/ui/Dialog";
 import { useAtomValue } from "@effect/atom-react";
 import {
@@ -729,6 +732,7 @@ function TaskForm({
   readonly onSaved: () => void;
   readonly onChangeEnvironment: (target: SettingsTarget) => void;
 }) {
+  const vcsMessage = useVcsMessages();
   const gt = useGT();
   const m = useMessages();
   const locale = useLocale();
@@ -747,9 +751,14 @@ function TaskForm({
           project.id === draft.task?.projectId),
     )
     .sort((left, right) => Number(right.pinnedAt != null) - Number(left.pinnedAt != null));
+  const selectedProject = projects.find((project) => project.id === draft.projectId);
+  const { terminology: vcs } = useRepositoryVcs(
+    environmentId,
+    selectedProject?.workspaceRoot ?? null,
+  );
   const automaticBaseRef = draft.workspace === "worktree" && !draft.baseRef.trim();
   const automaticBaseRefCwd = automaticBaseRef
-    ? (projects.find((project) => project.id === draft.projectId)?.workspaceRoot ?? null)
+    ? (selectedProject?.workspaceRoot ?? null)
     : null;
   const automaticBaseRefs = usePaginatedBranches({
     environmentId,
@@ -1088,7 +1097,9 @@ function TaskForm({
             label={gt("Run in")}
             value={
               draft.workspace === "worktree"
-                ? gt("New worktree")
+                ? vcs.kind === "git"
+                  ? gt("New worktree")
+                  : vcsMessage(vcsMsg("New {value0}", { value0: vcs.workspaceNoun }))
                 : draft.workspace === "root"
                   ? gt("Project checkout")
                   : gt("Specific checkout")
@@ -1096,7 +1107,10 @@ function TaskForm({
             actions={[
               {
                 id: "worktree",
-                title: gt("New worktree"),
+                title:
+                  vcs.kind === "git"
+                    ? gt("New worktree")
+                    : vcsMessage(vcsMsg("New {value0}", { value0: vcs.workspaceNoun })),
                 state: draft.workspace === "worktree" ? "on" : undefined,
               },
               {
@@ -1117,12 +1131,17 @@ function TaskForm({
           />
           {draft.workspace === "worktree" ? (
             <PickerRow
-              label={gt("Base branch")}
+              label={
+                vcs.kind === "git"
+                  ? gt("Base branch")
+                  : vcsMessage(vcsMsg("Base {value0}", { value0: vcs.refNoun }))
+              }
               value={resolveNewTaskBranchLabel(
                 {
                   branchName: automaticBaseRefLoading ? null : worktreeBaseRef,
                   startFromOrigin: draft.startFromOrigin,
                   workspaceMode: "worktree",
+                  terminology: vcs,
                 },
                 m,
               )}
