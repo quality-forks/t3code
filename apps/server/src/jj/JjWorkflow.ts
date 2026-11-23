@@ -6,12 +6,13 @@ import * as FileSystem from "effect/FileSystem";
 import * as Layer from "effect/Layer";
 import * as Path from "effect/Path";
 
-import { GitCommandError } from "@t3tools/contracts";
+import { GitCommandError, GitManagerError } from "@t3tools/contracts";
 import * as HostProcess from "@t3tools/shared/HostProcess";
 
 import { ServerConfig } from "../config.ts";
 import {
   readProjectSettings,
+  resolvePrBase,
   type ChangeRequestStepServices,
   type ChangeRequestVcsReads,
 } from "../sourceControl/ChangeRequestStep.ts";
@@ -200,9 +201,7 @@ export const make = Effect.gen(function* () {
   const invalidateStatus = (cwd: string) => driver.invalidateRepoCaches(cwd);
 
   /** The colocated-Git half of the shared change-request step. */
-  const changeRequestReads = Effect.fn("JjWorkflow.changeRequestReads")(function* (
-    cwd: string,
-  ): Effect.fn.Return<ChangeRequestVcsReads, GitCommandError> {
+  const changeRequestReads = Effect.fn("JjWorkflow.changeRequestReads")(function* (cwd: string) {
     const paths = yield* driver
       .ensureUsable("JjWorkflow.changeRequestReads", cwd)
       .pipe(
@@ -230,10 +229,7 @@ export const make = Effect.gen(function* () {
         ),
       ),
     );
-    const upstream =
-      refName === null
-        ? { primaryRemote: null, hasUpstream: false }
-        : yield* resolveUpstreamContext(driver, cwd, refName);
+    const upstream = refName === null ? null : yield* resolveUpstreamContext(driver, cwd, refName);
     const importedUpstream =
       refName === null ? null : yield* readImportedUpstream(process, paths, refName);
 
@@ -252,13 +248,13 @@ export const make = Effect.gen(function* () {
         appendTruncationMarker: true,
       }).pipe(Effect.map((result) => result.stdout));
 
-    return {
+    const reads: ChangeRequestVcsReads = {
       refName,
-      hasUpstream: importedUpstream !== null || upstream.hasUpstream,
+      hasUpstream: importedUpstream !== null || upstream?.hasUpstream === true,
       upstreamRef:
         importedUpstream !== null
           ? `${importedUpstream.remoteName}/${importedUpstream.branch}`
-          : upstream.hasUpstream && upstream.primaryRemote !== null
+          : upstream?.hasUpstream && upstream.primaryRemote !== null
             ? `${upstream.primaryRemote}/${refName}`
             : null,
       readRangeContext: (rangeCwd, baseRef) =>
@@ -303,6 +299,7 @@ export const make = Effect.gen(function* () {
       resolveRemoteTrackingCommit: remotes.resolveRemoteTrackingCommit,
       resolveRefName: refs.resolveRefName,
     };
+    return { ...reads, upstream, importedUpstream };
   });
 
   /** Change ids must resolve in jj, before any launch fallback or Git object lookup. */
@@ -359,14 +356,83 @@ export const make = Effect.gen(function* () {
     invalidateStatus,
     pullCurrentBranch: remotes.pullCurrentBranch,
     createPullRequest: Effect.fn("JjWorkflow.createPullRequest")(function* (input) {
-      const reads = yield* changeRequestReads(input.cwd);
-      const current = yield* status.status({ cwd: input.cwd });
-      return yield* gitManager
-        .createPullRequest(input, {
+      const { cwd } = input;
+      const operation = "createPullRequest";
+      if (input.private === true) {
+        return yield* new GitManagerError({
+          operation,
+          cwd,
+          detail: "Private pull requests are unavailable for Jujutsu workspaces.",
+        });
+      }
+
+      return yield* Effect.gen(function* () {
+        const { upstream, importedUpstream, ...reads } = yield* changeRequestReads(cwd);
+        const bookmark = reads.refName;
+        if (bookmark === null || upstream === null) {
+          return yield* new GitManagerError({
+            operation,
+            cwd,
+            detail: "Create a bookmark for this change before opening a change request.",
+          });
+        }
+        // Imported PR heads can have local aliases. Keep using the original source.
+        if (importedUpstream !== null) {
+          const current = yield* status.status({ cwd });
+          return yield* gitManager.createPullRequest(input, {
+            ...reads,
+            aheadCount: current.aheadCount,
+          });
+        }
+
+        const { primaryRemote, defaultBookmark, bookmarks } = upstream;
+        const { baseBranch } = yield* resolvePrBase(reads, cwd, bookmark, reads.upstreamRef, {
+          isCrossRepository: false,
+          remoteName: primaryRemote,
+        }).pipe(
+          Effect.provideService(
+            SourceControlProviderRegistry.SourceControlProviderRegistry,
+            sourceControlProviders,
+          ),
+        );
+        if (bookmark === defaultBookmark || bookmark === (input.baseBranch ?? baseBranch)) {
+          return yield* new GitManagerError({
+            operation,
+            cwd,
+            detail: `${bookmark} is a base branch. Check out a feature bookmark to create a change request.`,
+          });
+        }
+
+        const local = bookmarks.find((entry) => entry.name === bookmark && entry.remote === null);
+        const remote =
+          primaryRemote === null
+            ? undefined
+            : bookmarks.find((entry) => entry.name === bookmark && entry.remote === primaryRemote);
+        const remoteName = yield* Effect.gen(function* () {
+          const remoteName =
+            primaryRemote ?? (yield* remotes.requirePrimaryRemoteName(operation, cwd));
+          if (local?.target != null && local.target === remote?.target) {
+            return remoteName;
+          }
+          yield* remotes.pushBookmark({ cwd, name: bookmark, remoteName, operation });
+          return remoteName;
+        }).pipe(
+          Effect.mapError(
+            (cause) =>
+              new GitManagerError({
+                operation,
+                cwd,
+                detail: `Could not push ${bookmark}: ${cause.detail}${cause.reason === undefined ? "" : ` (${cause.reason})`}`,
+                cause,
+              }),
+          ),
+        );
+        return yield* gitManager.createPullRequest(input, {
           ...reads,
-          aheadCount: current.aheadCount,
-        })
-        .pipe(Effect.ensuring(invalidateStatus(input.cwd)));
+          hasUpstream: true,
+          upstreamRef: `${remoteName}/${bookmark}`,
+        });
+      }).pipe(Effect.ensuring(invalidateStatus(cwd)));
     }),
     runStackedAction: Effect.fn("JjWorkflow.runStackedAction")((input, options) =>
       withChangeRequestServices(stackedAction.runStackedAction(input, options)).pipe(asUserAction),

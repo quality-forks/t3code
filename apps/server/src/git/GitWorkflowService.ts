@@ -809,7 +809,7 @@ export const make = Effect.gen(function* () {
     ),
     createPullRequest: route("GitWorkflowService.createPullRequest", workflowRouting, {
       git: gitManager.createPullRequest,
-      jj: jjWorkflow.createPullRequest,
+      jj: (input) => withJjCheckoutLease(input.cwd, jjWorkflow.createPullRequest(input)),
     }),
     runStackedAction: Effect.fn("GitWorkflowService.runStackedAction")((input, options) =>
       route("GitWorkflowService.runStackedAction", workflowRouting, {
